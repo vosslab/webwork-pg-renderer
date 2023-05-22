@@ -6,7 +6,7 @@ lib/WeBWorK/htdocs/DATA/*.json
 lib/WeBWorK/bin/*
 webwork-open-problem-library/
 private/
-tmp/
+tmp/*
 logs/*.log
 node_modules
 node_modules/*

@@ -127,12 +127,19 @@ sub process_pg_file {
         problem_result    => $pg_obj->{problem_result},
         problem_state     => $pg_obj->{problem_state},
         flags             => $pg_obj->{flags},
-        resources         => $pg_obj->{resources},
+        resources         => {
+            regex         => $pg_obj->{resources},
+            tags          => $pg_obj->{pgResources},
+            js            => $pg_obj->{js},
+            css           => $pg_obj->{css},
+        },
         form_data         => $inputHash,
-        pgResources       => $pg_obj->{pgResources},
         raw_metadata_text => $pg_obj->{raw_metadata_text},
-        sessionJWT        => $pg_obj->{sessionJWT},
-        answerJWT         => $pg_obj->{answerJWT},
+        JWT               => {
+            problem       => $inputHash->{problemJWT},
+            session       => $pg_obj->{sessionJWT},
+            answer        => $pg_obj->{answerJWT}
+        },
     };
 
 	# havoc caused by problemRandomize.pl inserting CODE ref into pg->{flags}
@@ -360,7 +367,8 @@ sub standaloneRenderer {
         showSolutions   => $showSolutions,
         refreshMath2img => 1,
         processAnswers  => $processAnswers,
-        QUIZ_PREFIX     => '',
+        QUIZ_PREFIX     => $inputs_ref->{answerPrefix} // '',
+		useMathQuill    => !defined $inputs_ref->{entryAssist} || $inputs_ref->{entryAssist} eq 'MathQuill' ? 1 : 0,
 
         #use_site_prefix 	=> 'http://localhost:3000',
         use_opaque_prefix        => 0,
@@ -420,8 +428,6 @@ sub standaloneRenderer {
         $internal_debug_messages =
           ['Problem failed during render - no PGcore received.'];
     }
-
-    insert_mathquill_responses( $inputs_ref, $pg );
 
     my $out2 = {
         text                    => $pg->{body_text},
@@ -516,37 +522,13 @@ sub generateJWTs {
     return ($sessionJWT, $answerJWT);
 }
 
-# insert_mathquill_responses subroutine
-
-# Add responses to each answer's response group that store the latex form of the students'
-# answers and add corresponding hidden input boxes to the page.
-
-sub insert_mathquill_responses {
-    my ( $form_data, $pg ) = @_;
-    for my $answerLabel ( keys %{ $pg->{pgcore}{PG_ANSWERS_HASH} } ) {
-        my $mq_opts = $pg->{pgcore}{PG_ANSWERS_HASH}{$answerLabel}{ans_eval}{rh_ans}{mathQuillOpts} // '';
-        next if ( $mq_opts =~ /\s*disabled\s*/ );
-        my $response_obj = $pg->{pgcore}{PG_ANSWERS_HASH}{$answerLabel}->response_obj;
-        for my $response ( $response_obj->response_labels ) {
-            next if ( ref( $response_obj->{responses}{$response} ) );
-            my $name = "MaThQuIlL_$response";
-            push( @{ $response_obj->{response_order} }, $name );
-            $response_obj->{responses}{$name} = '';
-            my $value = defined( $form_data->{$name} ) ? $form_data->{$name} : '';
-            $pg->{body_text} .= CGI::hidden({
-                -name => $name, -id => $name, -value => $value, data_mq_opts => "$mq_opts"
-            });
-        }
-    }
-}
-
 sub fake_user {
     my $user = {
         user_id       => 'Motoko_Kusanagi',
         first_name    => 'Motoko',
         last_name     => 'Kusanagi',
         email_address => 'motoko.kusanagi@npsc.go.jp',
-        student_id    => '',
+        student_id    => '123456789',
         section       => '9',
         recitation    => '',
         comment       => '',

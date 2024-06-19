@@ -15,12 +15,8 @@
         </button>
         <div class="dropdown-content">
           <a href="#" class="dropdown-item" id="static">Static <i class="fa fa-check" aria-hidden="true"></i></a>
-          <a href="#" class="dropdown-item" id="single">Single <i class="fa fa-check" aria-hidden="true"></i></a>
-          <a href="#" class="dropdown-item" id="practice">Practice <i class="fa fa-check" aria-hidden="true"></i></a>
-          <a href="#" class="dropdown-item" id="classic">Classic <i class="fa fa-check" aria-hidden="true"></i></a>
-          <a href="#" class="dropdown-item" id="simple">Simple <i class="fa fa-check" aria-hidden="true"></i></a>
-          <a href="#" class="dropdown-item" id="standard">Standard <i class="fa fa-check" aria-hidden="true"></i></a>
-          <a href="#" class="dropdown-item" id="jwe_secure">LibreTexts <i class="fa fa-check" aria-hidden="true"></i></a>
+          <a href="#" class="dropdown-item" id="default">Default <i class="fa fa-check" aria-hidden="true"></i></a>
+          <a href="#" class="dropdown-item" id="debug">Debug <i class="fa fa-check" aria-hidden="true"></i></a>
         </div>
       </div>
       <div class="search-container" >

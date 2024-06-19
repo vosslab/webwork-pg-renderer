@@ -142,8 +142,6 @@ renderbutton.addEventListener("click", (event) => {
 		outputFormat = selectedformat.id;
 	}
 	let formData = new FormData();
-	formData.set("isInstructor", 1);
-	formData.set("includeTags", 1);
 	formData.set("showComments", 1);
 	formData.set(
 		"sourceFilePath",
@@ -151,6 +149,7 @@ renderbutton.addEventListener("click", (event) => {
 	);
 	formData.set("problemSeed", document.getElementById("problemSeed").value);
 	formData.set("outputFormat", outputFormat);
+	if (outputFormat == 'debug') formData.set("clientDebug", 1);
 
 	encoder = new TextEncoder();
 	formData.set(

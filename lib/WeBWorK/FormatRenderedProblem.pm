@@ -25,32 +25,42 @@ use strict;
 use warnings;
 
 use JSON;
-use Digest::SHA qw(sha1_base64);
+# use Digest::SHA qw(sha1_base64);
 use Mojo::Util qw(xml_escape);
 use Mojo::DOM;
+use Mojo::URL;
 
 use WeBWorK::Localize;
 use WeBWorK::AttemptsTable;
 use WeBWorK::Utils qw(getAssetURL);
 use WeBWorK::Utils::LanguageAndDirection;
 
+use OpenTelemetry -all;
+use OpenTelemetry::Constants -span;
+use Syntax::Keyword::Dynamically;
+
 sub formatRenderedProblem {
-	my $c = shift;
-	my $rh_result = shift;
+	my $span    = otel_tracer_provider->tracer->create_span(name => 'renderer.formatRenderedProblem');
+	my $context = otel_context_with_span($span);
+	dynamically otel_current_context = $context;
+
+	my $c          = shift;
+	my $rh_result  = shift;
 	my $inputs_ref = $rh_result->{inputs_ref};
 
 	my $renderErrorOccurred = 0;
 
 	my $problemText = $rh_result->{text} // '';
-	$problemText   .= $rh_result->{flags}{comment} if ( $rh_result->{flags}{comment} && $inputs_ref->{showComments} );
+	$problemText .= $rh_result->{flags}{comment} if ($rh_result->{flags}{comment} && $inputs_ref->{showComments});
 
 	if ($rh_result->{flags}{error_flag}) {
 		$rh_result->{problem_result}{score} = 0;    # force score to 0 for such errors.
-		$renderErrorOccurred                = 1;
+		$renderErrorOccurred = 1;
 	}
 
-	my $SITE_URL        = $inputs_ref->{baseURL} || $main::basehref;
-	my $FORM_ACTION_URL = $inputs_ref->{formURL} || $main::formURL; 
+	# TODO: add configuration to disable these overrides
+	my $SITE_URL        = $inputs_ref->{baseURL} ? Mojo::URL->new($inputs_ref->{baseURL}) : $main::basehref;
+	my $FORM_ACTION_URL = $inputs_ref->{formURL} ? Mojo::URL->new($inputs_ref->{formURL}) : $main::formURL;
 
 	my $displayMode = $inputs_ref->{displayMode} // 'MathJax';
 
@@ -58,12 +68,10 @@ sub formatRenderedProblem {
 	my $formLanguage = $inputs_ref->{language} // 'en';
 
 	# Third party CSS
-	# The second element of each array in the following is whether or not the file is a theme file.
-	# customize source for bootstrap.css
 	my @third_party_css = map { getAssetURL($formLanguage, $_->[0]) } (
-		[ 'css/bootstrap.css',                                         ],
-		[ 'node_modules/jquery-ui-dist/jquery-ui.min.css',             ],
-		[ 'node_modules/@fortawesome/fontawesome-free/css/all.min.css' ],
+		[ 'css/bootstrap.css', ],
+		[ 'node_modules/jquery-ui-dist/jquery-ui.min.css', ],
+		['node_modules/@fortawesome/fontawesome-free/css/all.min.css'],
 	);
 
 	# Add CSS files requested by problems via ADD_CSS_FILE() in the PG file
@@ -87,26 +95,26 @@ sub formatRenderedProblem {
 			push(@extra_css_files, { file => getAssetURL($formLanguage, $_->{file}), external => 0 });
 		}
 	}
+	$span->add_event(name => 'renderer.formatRenderedProblem.css_added', css_count => scalar @cssFiles);
 
 	# Third party JavaScript
-	# The second element of each array in the following is whether or not the file is a theme file.
-	# The third element is a hash containing the necessary attributes for the script tag.
+	# The second element is a hash containing the necessary attributes for the script tag.
 	my @third_party_js = map { [ getAssetURL($formLanguage, $_->[0]), $_->[1] ] } (
 		[ 'node_modules/jquery/dist/jquery.min.js',                            {} ],
 		[ 'node_modules/jquery-ui-dist/jquery-ui.min.js',                      {} ],
 		[ 'node_modules/iframe-resizer/js/iframeResizer.contentWindow.min.js', {} ],
-		[ "js/apps/MathJaxConfig/mathjax-config.js",                           { defer => undef } ],
-		[ 'node_modules/mathjax/es5/tex-svg.js',                               { defer => undef, id => 'MathJax-script' } ],
-		[ 'node_modules/bootstrap/dist/js/bootstrap.bundle.min.js',            { defer => undef } ],
-		[ "js/apps/Problem/problem.js",                                        { defer => undef } ],
-		[ "js/apps/Problem/submithelper.js",                                   { defer => undef } ],
-		[ "js/apps/CSSMessage/css-message.js",                                 { defer => undef } ],
+		[ "js/apps/MathJaxConfig/mathjax-config.js",                { defer => undef } ],
+		[ 'node_modules/mathjax/es5/tex-svg.js',                    { defer => undef, id => 'MathJax-script' } ],
+		[ 'node_modules/bootstrap/dist/js/bootstrap.bundle.min.js', { defer => undef } ],
+		[ "js/apps/Problem/problem.js",                             { defer => undef } ],
+		[ "js/apps/Problem/submithelper.js",                        { defer => undef } ],
+		[ "js/apps/CSSMessage/css-message.js",                      { defer => undef } ],
 	);
 
 	# Get the requested format. (outputFormat or outputformat)
 	# override to static mode if showCorrectAnswers has been set
-	my $formatName = $inputs_ref->{showCorrectAnswers} && !$inputs_ref->{isInstructor}
-		? 'static' : $inputs_ref->{outputFormat};
+	my $formatName =
+		$inputs_ref->{showCorrectAnswers} && !$inputs_ref->{isInstructor} ? 'static' : ($inputs_ref->{outputFormat} || 'default');
 
 	# Add JS files requested by problems via ADD_JS_FILE() in the PG file.
 	my @extra_js_files;
@@ -119,18 +127,24 @@ sub formatRenderedProblem {
 			if ($_->{external}) {
 				push(@extra_js_files, $_);
 			} else {
-				push(@extra_js_files,
-					{ file => getAssetURL($formLanguage, $_->{file}), external => 0, attributes => $_->{attributes} });
+				push(
+					@extra_js_files,
+					{
+						file       => getAssetURL($formLanguage, $_->{file}),
+						external   => 0,
+						attributes => $_->{attributes}
+					}
+				);
 			}
 		}
 	}
+	$span->add_event(name => 'renderer.formatRenderedProblem.js_added', js_count => scalar @extra_js_files);
 
 	# Set up the problem language and direction
 	# PG files can request their language and text direction be set.  If we do not have access to a default course
 	# language, fall back to the $formLanguage instead.
 	# TODO: support for right-to-left languages
-	my %PROBLEM_LANG_AND_DIR =
-		get_problem_lang_and_dir($rh_result->{flags}, 'auto:en:ltr', $formLanguage);
+	my %PROBLEM_LANG_AND_DIR = get_problem_lang_and_dir($rh_result->{flags}, 'auto:en:ltr', $formLanguage);
 	my $PROBLEM_LANG_AND_DIR = join(' ', map {qq{$_="$PROBLEM_LANG_AND_DIR{$_}"}} keys %PROBLEM_LANG_AND_DIR);
 
 	# is there a reason this doesn't use the same button IDs?
@@ -139,10 +153,11 @@ sub formatRenderedProblem {
 	my $showCorrectMode = defined($inputs_ref->{showCorrectAnswers}) || 0;
 	# A problemUUID should be added to the request as a parameter.  It is used by PG to create a proper UUID for use in
 	# aliases for resources.  It should be unique for a course, user, set, problem, and version.
-	my $problemUUID       = $inputs_ref->{problemUUID}       // '';
-	my $problemResult     = $rh_result->{problem_result}     // {};
-	my $showSummary       = $inputs_ref->{showSummary}       // 1;
-	my $showAnswerNumbers = $inputs_ref->{showAnswerNumbers} // 0; # default no
+	my $problemUUID      = $inputs_ref->{problemUUID}      // '';
+	my $problemResult    = $rh_result->{problem_result}    // {};
+	my $showSummary      = $inputs_ref->{showSummary}      // 1;
+	my $showScoreSummary = $inputs_ref->{showScoreSummary} // 0;
+	# my $showAnswerNumbers = $inputs_ref->{showAnswerNumbers} // 0;    # default no
 	# allow the request to hide the results table or messages
 	my $showTable    = $inputs_ref->{hideAttemptsTable} ? 0 : 1;
 	my $showMessages = $inputs_ref->{hideMessages}      ? 0 : 1;
@@ -150,28 +165,22 @@ sub formatRenderedProblem {
 	my $showPartialCorrectAnswers = $inputs_ref->{showPartialCorrectAnswers}
 		// $rh_result->{flags}{showPartialCorrectAnswers};
 
-	# Attempts table
-	my $answerTemplate = '';
-
-	# Do not produce an AttemptsTable when we had a rendering error.
-	if (!$renderErrorOccurred && $submitMode && $showTable) {
-		my $tbl = WeBWorK::AttemptsTable->new(
-			$rh_result->{answers} // {}, $c,
-			answersSubmitted    => 1,
-			answerOrder         => $rh_result->{flags}{ANSWER_ENTRY_ORDER} // [],
-			displayMode         => $displayMode,
-			showAnswerNumbers   => $showAnswerNumbers,
-			showAttemptAnswers  => 0,
-			showAttemptPreviews => 1,
-			showAttemptResults  => $showPartialCorrectAnswers && !$previewMode,
-			showCorrectAnswers  => $showCorrectMode,
-			showMessages        => $showMessages,
-			showSummary         => $showSummary && !$previewMode,
-			mtRef               => WeBWorK::Localize::getLoc($formLanguage),
-			summary             => $problemResult->{summary} // '',    # can be set by problem grader
-		);
-		$answerTemplate = $tbl->answerTemplate;
-		# $tbl->imgGen->render(refresh => 1) if $tbl->displayMode eq 'images';
+	# Do not produce a result summary when we had a rendering error.
+	my $resultSummary = '';
+	if (!$renderErrorOccurred
+		&& $showSummary
+		&& !$previewMode
+		&& ($submitMode || $showCorrectMode)
+		&& $problemResult->{summary})
+	{
+		$resultSummary = $c->c(
+			$c->tag(
+				'h2',
+				class => 'fs-3 mb-2',
+				'Results for this submission'
+				)
+				. $c->tag('div', role => 'alert', $c->b($problemResult->{summary}))
+		)->join('');
 	}
 
 	# Answer hash in XML format used by the PTX format.
@@ -198,15 +207,16 @@ sub formatRenderedProblem {
 	# with everything that a client-side application could use to work with the problem.
 	# There is no wrapping HTML "_format" template.
 	if ($formatName eq 'raw') {
+		$span->add_event(name => 'renderer.formatRenderedProblem.raw_format');
 		my $output = {};
 
 		# Everything that ships out with other formats can be constructed from these
 		$output->{rh_result}  = $rh_result;
 		$output->{inputs_ref} = $inputs_ref;
-		# $output->{input}      = $ws->{input};
 
 		# The following could be constructed from the above, but this is a convenience
-		$output->{answerTemplate}  = $answerTemplate->to_string if ($answerTemplate);
+		# $output->{answerTemplate}  = $answerTemplate->to_string if ($answerTemplate);
+		$output->{resultSummary}   = $resultSummary->to_string if $resultSummary;
 		$output->{lang}            = $PROBLEM_LANG_AND_DIR{lang};
 		$output->{dir}             = $PROBLEM_LANG_AND_DIR{dir};
 		$output->{extra_css_files} = \@extra_css_files;
@@ -218,11 +228,8 @@ sub formatRenderedProblem {
 		$output->{third_party_css} = \@third_party_css;
 		$output->{third_party_js}  = \@third_party_js;
 
-		# Say what version of WeBWorK this is
-		# $output->{ww_version} = $ce->{WW_VERSION};
-		# $output->{pg_version} = $ce->{PG_VERSION};
-
 		# Convert to JSON and render.
+		$span->end;
 		return $c->render(data => JSON->new->utf8(1)->encode($output));
 	}
 
@@ -244,49 +251,56 @@ sub formatRenderedProblem {
 		extra_js_files           => \@extra_js_files,
 		problemText              => $problemText,
 		extra_header_text        => $inputs_ref->{extra_header_text} // '',
-		answerTemplate           => $answerTemplate,
+		resultSummary            => $resultSummary,
+		showSummary              => $showSummary,
 		showScoreSummary         => $submitMode && !$renderErrorOccurred && !$previewMode && $problemResult,
 		answerhashXML            => $answerhashXML,
-		showPreviewButton        => $inputs_ref->{hidePreviewButton}        ? '0' : '',
-		showCheckAnswersButton   => $inputs_ref->{hideCheckAnswersButton}   ? '0' : '',
-		showCorrectAnswersButton => $inputs_ref->{showCorrectAnswersButton} // $inputs_ref->{isInstructor} ? '' : '0',
-		showFooter               => $inputs_ref->{showFooter}               // '0',
-		pretty_print             => \&pretty_print,
+		showPreviewButton        => $inputs_ref->{hidePreviewButton}      ? '0' : '',
+		showCheckAnswersButton   => $inputs_ref->{hideCheckAnswersButton} ? '0' : '',
+		showCorrectAnswersButton => $inputs_ref->{showCorrectAnswersButton}
+			// ($inputs_ref->{isInstructor} ? '' : '0'),
+		showFooter   => $inputs_ref->{showFooter} // '0',
+		pretty_print => \&pretty_print,
 	);
 
+	$span->end;
 	return $c->render(%template_params) if $formatName eq 'json';
 	$rh_result->{renderedHTML} = $c->render_to_string(%template_params)->to_string;
 	return $c->respond_to(
 		html => { text => $rh_result->{renderedHTML} },
-		json => { json => jsonResponse($rh_result, $inputs_ref, @extra_css_files, @third_party_css, @extra_js_files, @third_party_js) },
-    );
+		json => {
+			json => jsonResponse(
+				$rh_result, $inputs_ref, @extra_css_files, @third_party_css, @extra_js_files, @third_party_js
+			)
+		},
+	);
 }
 
 sub jsonResponse {
 	my ($rh_result, $inputs_ref, @extra_files) = @_;
 	return {
-		renderedHTML      => $rh_result->{renderedHTML},
-		answers           => $inputs_ref->{isInstructor} ? $rh_result->{answers} : (),
-		debug             => {
-			perl_warn     => $rh_result->{WARNINGS},
-			pg_warn       => $rh_result->{warning_messages},
-			debug         => $rh_result->{debug_messages},
-			internal      => $rh_result->{internal_debug_messages}
+		($inputs_ref->{isInstructor} ? (answers => $rh_result->{answers}) : ()),
+		($inputs_ref->{includeTags} ? (tags => $rh_result->{tags}, raw_metadata_text => $rh_result->{raw_metadata_text}) : ()),
+		renderedHTML => $rh_result->{renderedHTML},
+		debug        => {
+			perl_warn => $rh_result->{WARNINGS},
+			pg_warn   => $rh_result->{warning_messages},
+			debug     => $rh_result->{debug_messages},
+			internal  => $rh_result->{internal_debug_messages}
 		},
-		problem_result    => $rh_result->{problem_result},
-		problem_state     => $rh_result->{problem_state},
-		flags             => $rh_result->{flags},
-		tags			  => $rh_result->{tags},
-		resources         => {
-			regex         => $rh_result->{pgResources},
-			alias         => $rh_result->{resources},
-			assets        => [map {ref $_ eq 'HASH' ? "$_->{file}" : ref $_ eq 'ARRAY' ? "$_->[0]" : "$_"} @extra_files],
+		problem_result => $rh_result->{problem_result},
+		problem_state  => $rh_result->{problem_state},
+		flags          => $rh_result->{flags},
+		resources      => {
+			regex  => $rh_result->{pgResources},
+			alias  => $rh_result->{resources},
+			assets =>
+				[ map { ref $_ eq 'HASH' ? "$_->{file}" : ref $_ eq 'ARRAY' ? "$_->[0]" : "$_" } @extra_files ],
 		},
-		raw_metadata_text => $rh_result->{raw_metadata_text},
 		JWT               => {
-			problem       => $inputs_ref->{problemJWT},
-			session       => $rh_result->{sessionJWT},
-			answer        => $rh_result->{answerJWT}
+			problem => $inputs_ref->{problemJWT},
+			session => $rh_result->{sessionJWT},
+			answer  => $rh_result->{answerJWT}
 		},
 	};
 }
@@ -294,20 +308,28 @@ sub jsonResponse {
 # Nice output for debugging
 sub pretty_print {
 	my ($r_input, $level) = @_;
+	return 'undef' unless defined $r_input;
+
 	$level //= 4;
 	$level--;
-	return '' unless $level > 0;    # Only print three levels of hashes (safety feature)
-	my $out = '';
-	if (!ref $r_input) {
-		$out = $r_input if defined $r_input;
-		$out =~ s/</&lt;/g;         # protect for HTML output
-	} elsif (eval { %$r_input && 1 }) {
-		# eval { %$r_input && 1 } will pick up all objectes that can be accessed like a hash and so works better than
-		# "ref $r_input".  Do not use "$r_input" =~ /hash/i" because that will pick up strings containing the word hash,
-		# and that will cause an error below.
-		local $^W = 0;
-		$out .= qq{$r_input <table border="2" cellpadding="3" bgcolor="#FFFFFF">};
+	return 'too deep' unless $level > 0;    # Only print three levels of hashes (safety feature)
 
+	my $ref = ref($r_input);
+
+	if (!$ref) {
+		return xml_escape($r_input);
+	} elsif (eval { %$r_input && 1 }) {
+		# `eval { %$r_input && 1 }` will pick up all objects that can be accessed like a hash and so works better than
+		# `ref $r_input`.  Do not use `"$r_input" =~ /hash/i` because that will pick up strings containing the word
+		# hash, and that will cause an error below.
+		my $out =
+			'<div style="display:table;border:1px solid black;background-color:#fff;">'
+			. ($ref eq 'HASH'
+				? ''
+				: '<div style="'
+				. 'display:table-caption;padding:3px;border:1px solid black;background-color:#fff;text-align:center;">'
+				. "$ref</div>")
+			. '<div style="display:table-row-group">';
 		for my $key (sort keys %$r_input) {
 			# Safety feature - we do not want to display the contents of %seed_ce which
 			# contains the database password and lots of other things, and explicitly hide
@@ -320,24 +342,24 @@ sub pretty_print {
 					|| ($key eq "externalPrograms")
 					|| ($key eq "permissionLevels")
 					|| ($key eq "seed_ce"));
-			$out .= "<tr><td>$key</td><td>=&gt;</td><td>&nbsp;" . pretty_print($r_input->{$key}, $level) . "</td></tr>";
+			$out .=
+				'<div style="display:table-row"><div style="display:table-cell;vertical-align:middle;padding:3px">'
+				. xml_escape($key)
+				. '</div>'
+				. qq{<div style="display:table-cell;vertical-align:middle;padding:3px">=&gt;</div>}
+				. qq{<div style="display:table-cell;vertical-align:middle;padding:3px">}
+				. pretty_print($r_input->{$key}, $level)
+				. '</div></div>';
 		}
-		$out .= '</table>';
-	} elsif (ref $r_input eq 'ARRAY') {
-		my @array = @$r_input;
-		$out .= '( ';
-		while (@array) {
-			$out .= pretty_print(shift @array, $level) . ' , ';
-		}
-		$out .= ' )';
-	} elsif (ref $r_input eq 'CODE') {
-		$out = "$r_input";
+		$out .= '</div></div>';
+		return $out;
+	} elsif ($ref eq 'ARRAY') {
+		return '[ ' . join(', ', map { pretty_print($_, $level) } @$r_input) . ' ]';
+	} elsif ($ref eq 'CODE') {
+		return 'CODE';
 	} else {
-		$out = $r_input;
-		$out =~ s/</&lt;/g;    # Protect for HTML output
+		return xml_escape($r_input);
 	}
-
-	return $out . ' ';
 }
 
 1;

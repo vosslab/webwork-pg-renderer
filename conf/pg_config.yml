@@ -15,32 +15,32 @@
 
 directories:
   # The OPL and Contrib directories.
-  OPL: $render_root/Library
-  Contrib: $render_root/Contrib
+  OPL: /opt/renderer/webwork-open-problem-library/OpenProblemLibrary
+  Contrib: /opt/renderer/webwork-open-problem-library/Contrib
 
   # The root PG location.  This will be set from the PG_ROOT environment variable, but can be overriden here.
   root: $pg_root
 
   # Global temporary directory.  This location must be writable.
-  tmp: $render_root/tmp
+  tmp: /tmp
 
   # Public html location containing the PG javascript, css, and help files.
   html: $pg_root/htdocs
 
   # Temporary directory from which generated files will be served.  This location must be writable.
-  html_temp: $render_root/tmp
+  html_temp: $pg_root/htdocs/tmp
 
   # Directory from which WeBWorK::PG::IO allows files to be read.
-  permitted_read_dir: $render_root
+  permitted_read_dir: /opt/renderer
 
   # Location of cached equation images.
-  equationCache: $render_root/tmp/equations
+  equationCache: $pg_root/htdocs/tmp/equations
 
   #  The macro file search path.  Each directory in this list is searched
   #  (in this order) by loadMacros when it looks for a .pl macro file.
   macrosPath:
     - .
-    - $render_root/private/macros
+    - /opt/renderer/private/macros/
     - $pg_root/macros
     - $pg_root/macros/answers
     - $pg_root/macros/capa
@@ -53,28 +53,29 @@ directories:
     - $pg_root/macros/ui
     - $pg_root/macros/deprecated
 
+
 URLs:
   # The public URL of the html directory above.
-  html: $pg_root_url/pg_files
+  html: /pg_files
 
   # The public URL of the html_temp directory above.
-  tempURL: $pg_root_url/pg_files/tmp
+  tempURL: $pg_root_url/tmp
 
   # The public URL of the PG help files.
-  localHelpURL: $pg_root_url/pg_files/helpFiles
+  localHelpURL: $pg_root_url/helpFiles
 
   # URL of cached equation images.
-  equationCache: $pg_root_url/pg_files/tmp/equations
+  equationCache: $pg_root_url/tmp/equations
 
   # Paths to search for auxiliary html files (requires full url).
   htmlPath:
     - .
-    - $pg_root_url/pg_files
+    - $pg_root_url
 
   # Paths to search for image files (requires full url).
   imagesPath:
     - .
-    - $pg_root_url/pg_files/images
+    - $pg_root_url/images
 
 # Flat-file database used to protect against MD5 hash collisions. TeX equations
 # are hashed to determine the name of the image file. There is a tiny chance of
@@ -114,7 +115,7 @@ specialPGEnvironmentVars:
 
   # Binary that the PGtikz.pl and PGlateximage.pl macros will use to create svg images.
   # This should be either 'pdf2svg' or 'dvisvgm'.
-  latexImageSVGMethod: pdf2svg
+  latexImageSVGMethod: dvisvgm
 
   # When ImageMagick is used for image conversions, this sets the default options.
   # See https://imagemagick.org/script/convert.php for a full list of options.
@@ -147,7 +148,7 @@ specialPGEnvironmentVars:
   CAPA_Tools: $Contrib_dir/CAPA/macros/CAPA_Tools/
   CAPA_MCTools: $Contrib_dir/Contrib/CAPA/macros/CAPA_MCTools/
   CAPA_GraphicsDirectory: $Contrib_dir/Contrib/CAPA/CAPA_Graphics/
-  CAPA_Graphics_URL: $pg_root_url/pg_files/CAPA_Graphics/
+  CAPA_Graphics_URL: $pg_root_url/CAPA_Graphics/
 
 # Answer evaluatior defaults
 ansEvalDefaults:
@@ -172,7 +173,7 @@ options:
   # The default grader to use, if a problem doesn't specify.
   grader: avg_problem_grader
 
-  # Note that the first of useMathQuill, useMathView, and useWirisEditor that is set (in that order) to 1 will be used.
+  # Note that the first of useMathQuill and useMathView that is set (in that order) to 1 will be used.
 
   # Set to 1 use MathQuill in answer boxes.
   useMathQuill: 1
@@ -246,4 +247,3 @@ modules:
   - [Rserve, 'Class::Tiny', 'IO::Handle']
   - [DragNDrop]
   - ['Types::Serialiser']
-  - ['WeBWorK::Localize']

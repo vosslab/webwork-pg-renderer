@@ -35,15 +35,7 @@ use WeBWorK::AttemptsTable;
 use WeBWorK::Utils qw(getAssetURL);
 use WeBWorK::Utils::LanguageAndDirection;
 
-use OpenTelemetry -all;
-use OpenTelemetry::Constants -span;
-use Syntax::Keyword::Dynamically;
-
 sub formatRenderedProblem {
-	my $span    = otel_tracer_provider->tracer->create_span(name => 'renderer.formatRenderedProblem');
-	my $context = otel_context_with_span($span);
-	dynamically otel_current_context = $context;
-
 	my $c          = shift;
 	my $rh_result  = shift;
 	my $inputs_ref = $rh_result->{inputs_ref};
@@ -95,7 +87,6 @@ sub formatRenderedProblem {
 			push(@extra_css_files, { file => getAssetURL($formLanguage, $_->{file}), external => 0 });
 		}
 	}
-	$span->add_event(name => 'renderer.formatRenderedProblem.css_added', css_count => scalar @cssFiles);
 
 	# Third party JavaScript
 	# The second element is a hash containing the necessary attributes for the script tag.
@@ -113,8 +104,8 @@ sub formatRenderedProblem {
 
 	# Get the requested format. (outputFormat or outputformat)
 	# override to static mode if showCorrectAnswers has been set
-	my $formatName =
-		$inputs_ref->{showCorrectAnswers} && !$inputs_ref->{isInstructor} ? 'static' : ($inputs_ref->{outputFormat} || 'default');
+	my $formatName = $inputs_ref->{showCorrectAnswers}
+		&& !$inputs_ref->{isInstructor} ? 'static' : ($inputs_ref->{outputFormat} || 'default');
 
 	# Add JS files requested by problems via ADD_JS_FILE() in the PG file.
 	my @extra_js_files;
@@ -138,7 +129,6 @@ sub formatRenderedProblem {
 			}
 		}
 	}
-	$span->add_event(name => 'renderer.formatRenderedProblem.js_added', js_count => scalar @extra_js_files);
 
 	# Set up the problem language and direction
 	# PG files can request their language and text direction be set.  If we do not have access to a default course
@@ -207,7 +197,6 @@ sub formatRenderedProblem {
 	# with everything that a client-side application could use to work with the problem.
 	# There is no wrapping HTML "_format" template.
 	if ($formatName eq 'raw') {
-		$span->add_event(name => 'renderer.formatRenderedProblem.raw_format');
 		my $output = {};
 
 		# Everything that ships out with other formats can be constructed from these
@@ -229,7 +218,6 @@ sub formatRenderedProblem {
 		$output->{third_party_js}  = \@third_party_js;
 
 		# Convert to JSON and render.
-		$span->end;
 		return $c->render(data => JSON->new->utf8(1)->encode($output));
 	}
 
@@ -263,7 +251,6 @@ sub formatRenderedProblem {
 		pretty_print => \&pretty_print,
 	);
 
-	$span->end;
 	return $c->render(%template_params) if $formatName eq 'json';
 	$rh_result->{renderedHTML} = $c->render_to_string(%template_params)->to_string;
 	return $c->respond_to(
@@ -280,7 +267,11 @@ sub jsonResponse {
 	my ($rh_result, $inputs_ref, @extra_files) = @_;
 	return {
 		($inputs_ref->{isInstructor} ? (answers => $rh_result->{answers}) : ()),
-		($inputs_ref->{includeTags} ? (tags => $rh_result->{tags}, raw_metadata_text => $rh_result->{raw_metadata_text}) : ()),
+		(
+			$inputs_ref->{includeTags}
+			? (tags => $rh_result->{tags}, raw_metadata_text => $rh_result->{raw_metadata_text})
+			: ()
+		),
 		renderedHTML => $rh_result->{renderedHTML},
 		debug        => {
 			perl_warn => $rh_result->{WARNINGS},
@@ -297,7 +288,7 @@ sub jsonResponse {
 			assets =>
 				[ map { ref $_ eq 'HASH' ? "$_->{file}" : ref $_ eq 'ARRAY' ? "$_->[0]" : "$_" } @extra_files ],
 		},
-		JWT               => {
+		JWT => {
 			problem => $inputs_ref->{problemJWT},
 			session => $rh_result->{sessionJWT},
 			answer  => $rh_result->{answerJWT}

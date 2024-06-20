@@ -15,26 +15,26 @@
 
 directories:
   # The OPL and Contrib directories.
-  OPL: /opt/renderer/webwork-open-problem-library/OpenProblemLibrary
-  Contrib: /opt/renderer/webwork-open-problem-library/Contrib
+  OPL: $render_root/Library
+  Contrib: $render_root/Contrib
 
   # The root PG location.  This will be set from the PG_ROOT environment variable, but can be overriden here.
   root: $pg_root
 
   # Global temporary directory.  This location must be writable.
-  tmp: /tmp
+  tmp: $render_root/tmp
 
   # Public html location containing the PG javascript, css, and help files.
   html: $pg_root/htdocs
 
   # Temporary directory from which generated files will be served.  This location must be writable.
-  html_temp: $pg_root/htdocs/tmp
+  html_temp: $render_root/tmp
 
   # Directory from which WeBWorK::PG::IO allows files to be read.
-  permitted_read_dir: /opt/renderer
+  permitted_read_dir: $render_root
 
   # Location of cached equation images.
-  equationCache: $pg_root/htdocs/tmp/equations
+  equationCache: $render_root/tmp/equations
 
   #  The macro file search path.  Each directory in this list is searched
   #  (in this order) by loadMacros when it looks for a .pl macro file.
@@ -55,26 +55,26 @@ directories:
 
 URLs:
   # The public URL of the html directory above.
-  html: /pg_files
+  html: $pg_root_url/pg_files
 
   # The public URL of the html_temp directory above.
-  tempURL: $pg_root_url/tmp
+  tempURL: $pg_root_url/pg_files/tmp
 
   # The public URL of the PG help files.
-  localHelpURL: $pg_root_url/helpFiles
+  localHelpURL: $pg_root_url/pg_files/helpFiles
 
   # URL of cached equation images.
-  equationCache: $pg_root_url/tmp/equations
+  equationCache: $pg_root_url/pg_files/tmp/equations
 
   # Paths to search for auxiliary html files (requires full url).
   htmlPath:
     - .
-    - $pg_root_url
+    - $pg_root_url/pg_files
 
   # Paths to search for image files (requires full url).
   imagesPath:
     - .
-    - $pg_root_url/images
+    - $pg_root_url/pg_files/images
 
 # Flat-file database used to protect against MD5 hash collisions. TeX equations
 # are hashed to determine the name of the image file. There is a tiny chance of

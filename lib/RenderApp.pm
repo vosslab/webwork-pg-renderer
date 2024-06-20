@@ -20,14 +20,6 @@ BEGIN {
 		? "$ENV{RENDER_ROOT}/render_app.conf"
 		: "$ENV{RENDER_ROOT}/render_app.conf.dist";
 	$ENV{MOJO_LOG_LEVEL} = 'debug';
-
-	# How should OpenTelemetry options be made configurable?
-	# These options must be set before the application loads
-	$ENV{OTEL_SERVICE_NAME}              = 'Renderer';
-	$ENV{OTEL_TRACES_EXPORTER}           = 'otlp';
-	$ENV{OTEL_BSP_MAX_EXPORT_BATCH_SIZE} = 15;
-	$ENV{OTEL_EXPORTER_OTLP_ENDPOINT}    = 'http://docker:4318';
-	$ENV{OTEL_EXPORTER_OTLP_PROTOCOL}    = 'http/json';
 }
 
 use lib "$main::libname";
@@ -38,19 +30,12 @@ use RenderApp::Controller::IO;
 use WeBWorK::RenderProblem;
 use WeBWorK::FormatRenderedProblem;
 
-use OpenTelemetry::SDK;
-use OpenTelemetry::Exporter::OTLP;
-OpenTelemetry->tracer_provider->add_span_processor(OpenTelemetry::SDK::Trace::Span::Processor::Batch->new(
-	exporter => OpenTelemetry::Exporter::OTLP->new()
-));
-
 sub startup {
 	my $self = shift;
 
 	# Merge environment variables with config file
 	$self->plugin('Config');
 	$self->plugin('TagHelpers');
-	$self->plugin('OpenTelemetry');
 	$self->secrets($self->config('secrets'));
 	for (qw(problemJWTsecret webworkJWTsecret baseURL formURL SITE_HOST STRICT_JWT)) {
 		$ENV{$_} //= $self->config($_);
@@ -117,6 +102,7 @@ sub startup {
 	my $r = $self->routes->under($ENV{baseURL});
 
 	$r->any('/render-api')->to('render#problem');
+	$r->any('/render-ptx')->to('render#render_ptx');
 	$r->any('/health' => sub { shift->rendered(200) });
 
 	# Enable problem editor & OPL browser -- NOT recommended for production environment!

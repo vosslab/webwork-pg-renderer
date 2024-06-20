@@ -1,7 +1,5 @@
-<!--WeBWorK Renderer using host: <%= $SITE_URL %>, format: ptx -->
-<!--BEGIN PROBLEM-->
+<?xml version="1.0"?>
 <webwork>
 %== $problemText
 %== $answerhashXML
 </webwork>
-<!--END PROBLEM-->

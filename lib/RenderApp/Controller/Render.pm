@@ -2,9 +2,12 @@
 package RenderApp::Controller::Render;
 use Mojo::Base 'Mojolicious::Controller', -async_await;
 
+use Mojo::DOM;
 use Mojo::JSON qw(encode_json decode_json);
 use Crypt::JWT qw(encode_jwt decode_jwt);
 use Time::HiRes qw/time/;
+
+use WeBWorK::PreTeXt;
 
 sub parseRequest {
 	my $c      = shift;
@@ -213,7 +216,8 @@ async sub problem {
 async sub render_ptx {
 	my $c = shift;
 	my $p = $c->req->params->to_hash;
-	return Mojo::IOLoop->subprocess->run_p(sub {
+	$c->render_later;
+	my $res = await Mojo::IOLoop->subprocess->run_p(sub {
 		my $pg = WeBWorK::PreTeXt::render_ptx($p);
 
 		my $dom = Mojo::DOM->new->xml(1);
@@ -224,12 +228,15 @@ async sub render_ptx {
 		}
 		$dom->wrap_content('<answerhashes></answerhashes>');
 		my $answerXML = $dom->to_string;
-		return "<?xml verion=\"1.0\"?>\n<webwork>\n$pg->{body_text}\n$answerXML</webwork>";
+
+		return "<?xml verion=\"1.0\"?>\n<webwork>\n$pg->{body}\n$answerXML</webwork>";
 	})->catch(sub {
 		my $err = shift;
-		$c->render(text => "error: $err");
+		return "error: $err";
 	});
+	return $c->render(text => "$res");
 }
+
 async sub sendAnswerJWT {
 	my $c            = shift;
 	my $JWTanswerURL = shift;

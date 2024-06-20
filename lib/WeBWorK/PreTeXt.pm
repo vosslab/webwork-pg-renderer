@@ -1,6 +1,8 @@
 package WeBWorK::PreTeXt;
 use Mojo::Base 'Mojolicious::Controller', -async_await;
 
+use Data::Structure::Util qw(unbless);
+
 use warnings;
 use strict;
 
@@ -26,7 +28,7 @@ sub render_ptx {
 
 	my $ret = {
 		body    => $pg->{body_text},
-		answers => $pg->{answers}
+		answers => unbless($pg->{answers})
 	};
 
 	$pg->free;

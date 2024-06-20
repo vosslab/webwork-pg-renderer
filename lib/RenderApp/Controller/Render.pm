@@ -228,8 +228,8 @@ async sub render_ptx {
 		}
 		$dom->wrap_content('<answerhashes></answerhashes>');
 		my $answerXML = $dom->to_string;
-
-		return "<?xml verion=\"1.0\"?>\n<webwork>\n$pg->{body}\n$answerXML</webwork>";
+		# <?xml verion=\"1.0\"?>\n
+		return "<webwork>\n$pg->{body}\n$answerXML</webwork>";
 	})->catch(sub {
 		my $err = shift;
 		return "error: $err";

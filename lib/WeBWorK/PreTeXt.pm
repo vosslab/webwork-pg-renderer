@@ -1,5 +1,7 @@
 package WeBWorK::PreTeXt;
-use Mojo::Base 'Mojolicious::Controller', -async_await;
+
+use strict;
+use warnings;
 
 use Mojo::DOM;
 use Mojo::IOLoop;

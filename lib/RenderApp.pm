@@ -110,8 +110,8 @@ sub startup {
 
 	# Static file routes
 	$r->any('/pg_files/CAPA_Graphics/*static')->to('StaticFiles#CAPA_graphics_file');
-	$r->any('/pg_files/*static')->to('StaticFiles#pg_file');
 	$r->any('/pg_files/tmp/*static')->to('StaticFiles#temp_file');
+	$r->any('/pg_files/*static')->to('StaticFiles#pg_file');
 	$r->any('/*static')->to('StaticFiles#public_file');
 
 }

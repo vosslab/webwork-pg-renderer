@@ -31,7 +31,6 @@ use Mojo::DOM;
 use Mojo::URL;
 
 use WeBWorK::Localize;
-use WeBWorK::AttemptsTable;
 use WeBWorK::Utils qw(getAssetURL);
 use WeBWorK::Utils::LanguageAndDirection;
 

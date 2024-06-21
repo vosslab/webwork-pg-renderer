@@ -2,7 +2,6 @@
 package RenderApp::Controller::Render;
 use Mojo::Base 'Mojolicious::Controller', -async_await;
 
-use Mojo::DOM;
 use Mojo::JSON qw(encode_json decode_json);
 use Crypt::JWT qw(encode_jwt decode_jwt);
 use Time::HiRes qw/time/;
@@ -215,26 +214,14 @@ async sub problem {
 
 async sub render_ptx {
 	my $c = shift;
-	my $p = $c->req->params->to_hash;
-	$c->render_later;
-	my $res = await Mojo::IOLoop->subprocess->run_p(sub {
-		my $pg = WeBWorK::PreTeXt::render_ptx($p);
 
-		my $dom = Mojo::DOM->new->xml(1);
-		for my $answer (sort keys %{ $pg->{answers} }) {
-			$dom->append_content($dom->new_tag(
-				$answer, map { $_ => ($pg->{answers}{$answer}{$_} // '') } keys %{ $pg->{answers}{$answer} }
-			));
-		}
-		$dom->wrap_content('<answerhashes></answerhashes>');
-		my $answerXML = $dom->to_string;
-		# <?xml verion=\"1.0\"?>\n
-		return "<webwork>\n$pg->{body}\n$answerXML</webwork>";
-	})->catch(sub {
-		my $err = shift;
-		return "error: $err";
-	});
-	return $c->render(text => "$res");
+	$c->render_later;
+	my $res = await WeBWorK::PreTeXt::render_ptx($c->req->params->to_hash);
+
+	return $c->render(text => $res) unless ref($res) eq 'HASH';
+
+	$c->res->headers->content_type('text/xml; charset=utf-8');
+	return $c->render(template => 'RPCRenderFormats/ptx', %$res);
 }
 
 async sub sendAnswerJWT {

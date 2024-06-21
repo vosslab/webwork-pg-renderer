@@ -51,7 +51,7 @@ directories:
     - $pg_root/macros/parsers
     - $pg_root/macros/ui
     - $pg_root/macros/deprecated
-    - /opt/renderer/private/macros
+    - $render_root/private/macros
 
 URLs:
   # The public URL of the html directory above.

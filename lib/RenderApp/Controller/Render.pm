@@ -17,15 +17,13 @@ sub parseRequest {
 	$originIP ||= $c->tx->remote_address || 'unknown-origin';
 
 	if ($ENV{STRICT_JWT} && !(defined $params{problemJWT} || defined $params{sessionJWT})) {
-		$c->exception('Not allowed to request problems with raw data.', 403);
-		return;
+		return $c->exception('Not allowed to request problems with raw data.', 403);
 	}
 
 	# protect against DOM manipulation
 	if (defined $params{submitAnswers} && defined $params{previewAnswers}) {
 		$c->log->error('Simultaneous submit and preview! JWT: ', $params{problemJWT} // {});
-		$c->exception('Malformed request.', 400);
-		return;
+		return $c->exception('Malformed request.', 400);
 	}
 
 	# TODO: ensure showCorrectAnswers does not appear without showCorrectAnswersButton

@@ -107,10 +107,10 @@ sub process_pg_file {
 #######################################################################
 
 sub process_problem {
-        my ($problem, $inputs_ref) = @_;
+	my ($problem, $inputs_ref) = @_;
 
-	my $source     = $problem->{problem_contents};
-	my $file_path  = $inputs_ref->{sourceFilePath} || $inputs_ref->{problemSourceURL};
+	my $source    = $problem->{problem_contents};
+	my $file_path = $inputs_ref->{sourceFilePath} || $inputs_ref->{problemSourceURL};
 	my ($raw_metadata_text, $problemUUID);
 
 	# TODO: include problemUUID from problemSourceURL and skip this if present
@@ -153,7 +153,7 @@ sub process_problem {
 	if ($inputs_ref->{previewAnswers}) {
 		# if this is a preview, leave session unmodified, and no answerJWT
 		$return_object->{sessionJWT} = $inputs_ref->{sessionJWT};
-	} else {
+	} elsif ($inputs_ref->{problemJWT}) {
 		my ($sessionJWT, $answerJWT) = generateJWTs($return_object, $inputs_ref);
 		$return_object->{sessionJWT} = $sessionJWT;
 		$return_object->{answerJWT}  = $answerJWT;
@@ -251,10 +251,10 @@ sub standaloneRenderer {
 		flags            => $pg->{flags},
 	};
 	if (ref($pg->{pgcore}) eq 'PGcore') {
-		$ret->{internal_debug_messages}  = $pg->{pgcore}->get_internal_debug_messages();
-		$ret->{warning_messages}       = $pg->{pgcore}->get_warning_messages();
-		$ret->{debug_messages}         = $pg->{pgcore}->get_debug_messages();
-		$ret->{resources}                = [ keys %{ $pg->{pgcore}{PG_alias}{resource_list} } ];
+		$ret->{internal_debug_messages} = $pg->{pgcore}->get_internal_debug_messages();
+		$ret->{warning_messages}        = $pg->{pgcore}->get_warning_messages();
+		$ret->{debug_messages}          = $pg->{pgcore}->get_debug_messages();
+		# $ret->{resources}                = [ keys %{ $pg->{pgcore}{PG_alias}{resource_list} } ];
 		$ret->{PERSISTENCE_HASH_UPDATED} = $pg->{pgcore}{PERSISTENCE_HASH_UPDATED};
 		$ret->{PERSISTENCE_HASH}         = $pg->{pgcore}{PERSISTENCE_HASH};
 		$ret->{PG_ANSWERS_HASH}          = {
@@ -267,10 +267,10 @@ sub standaloneRenderer {
 				keys %{ $pg->{pgcore}{PG_ANSWERS_HASH} }
 		};
 		# TODO: replace resources after PG merges #1046
-		# $ret->{resource_list} = {
-		# 	map { $_ => $pg->{pgcore}{PG_alias}{resource_list}{$_}{uri} }
-		# 		keys %{ $pg->{pgcore}{PG_alias}{resource_list} }
-		# };
+		$ret->{resources} = {
+			map { $_ => $pg->{pgcore}{PG_alias}{resource_list}{$_}{uri} }
+				keys %{ $pg->{pgcore}{PG_alias}{resource_list} }
+		};
 	} else {
 		$ret->{internal_debug_messages} = ['Problem failed during render - no PGcore received.'];
 	}
@@ -319,11 +319,8 @@ sub generateJWTs {
 	}
 
 	# store the current answer/response state for each entry
-	foreach my $ans (keys %{ $scoreHash->{answers} }) {
-		# TODO: Anything else we want to add to sessionHash?
+	foreach my $ans (@{ $pg->{flags}{KEPT_EXTRA_ANSWERS} }) {
 		$sessionHash->{$ans} = $inputs_ref->{$ans};
-		$sessionHash->{ 'MaThQuIlL_' . $ans } = $inputs_ref->{ 'MaThQuIlL_' . $ans }
-			if ($inputs_ref->{ 'MaThQuIlL_' . $ans });
 
 # More restructuring -- confirm with LibreTexts
 # $scoreHash->{$ans}{student} = { map {exists $answers{$ans}{$_} ? ($studentKeys{$_} => $answers{$ans}{$_}) : ()} keys %studentKeys };

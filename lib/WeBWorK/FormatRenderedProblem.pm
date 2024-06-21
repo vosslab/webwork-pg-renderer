@@ -266,7 +266,19 @@ sub formatRenderedProblem {
 sub jsonResponse {
 	my ($rh_result, $inputs_ref, @extra_files) = @_;
 	return {
-		($inputs_ref->{isInstructor} ? (answers => $rh_result->{answers}) : ()),
+		(
+			$inputs_ref->{isInstructor}
+			? (
+				answers => $rh_result->{answers},
+				inputs  => $inputs_ref,
+				pgcore  => {
+					persist    => $rh_result->{PERSISTENCE_HASH},
+					persist_up => $rh_result->{PERSISTENCE_HASH_UPDATED},
+					pgah       => $rh_result->{PG_ANSWERS_HASH}
+				}
+				)
+			: ()
+		),
 		(
 			$inputs_ref->{includeTags}
 			? (tags => $rh_result->{tags}, raw_metadata_text => $rh_result->{raw_metadata_text})

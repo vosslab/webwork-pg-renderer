@@ -1,5 +1,5 @@
 (() => {
-	const frame = window.frameElement.id || window.frameElement.data.id;
+	const frame = window.frameElement.id || window.frameElement.dataset.id || 'no-id';
 	// Activate the popovers in the results table.
 	document.querySelectorAll('.attemptResults .answer-preview[data-bs-toggle="popover"]')
 		.forEach((preview) => {

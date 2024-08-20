@@ -1,4 +1,3 @@
-
 package RenderApp::Controller::Render;
 use Mojo::Base 'Mojolicious::Controller', -async_await;
 

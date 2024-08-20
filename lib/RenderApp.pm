@@ -104,6 +104,21 @@ sub startup {
 	$r->any('/render-api')->to('render#problem');
 	$r->any('/render-ptx')->to('render#render_ptx');
 	$r->any('/health' => sub { shift->rendered(200) });
+	$r->any('/health' => sub {shift->rendered(200)});
+	if ($self->mode eq 'development' || $self->config('FULL_APP_INSECURE')) {
+		$r->any('')->to('pages#twocolumn');
+		$r->any('/')->to('pages#twocolumn');
+		$r->any('/opl')->to('pages#oplUI');
+		$r->any('/die' => sub {die "what did you expect, flowers?"});
+		$r->any('/timeout' => sub {
+			my $c = shift;
+			my $tx = $c->render_later->tx;
+			Mojo::IOLoop->timer(2 => sub {
+				$tx = $tx; # prevent $tx from going out of scope
+				$c->rendered(200);
+			});
+		});
+  }
 
 	# Enable problem editor & OPL browser -- NOT recommended for production environment!
 	supplementalRoutes($r) if ($self->mode eq 'development' || $self->config('FULL_APP_INSECURE'));

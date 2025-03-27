@@ -10,5 +10,5 @@ services:
       - PERL5LIB=/usr/app/lib
       - MOJO_MODE=development
     volumes:
-      - ${HOME}/nsh/webwork_tester:/usr/app/private:rw
+      - ${PWD}/local_pg_files:/usr/app/private:rw
     command: hypnotoad -f ./script/render_app

@@ -68,22 +68,8 @@ RUN apt-get update \
 #    && rm -fr ./cpanm /root/.cpanm /tmp/*
 
 WORKDIR /usr/app
-RUN git config --global advice.detachedHead false
-
-# Clone renderer version 1.2.9 directly into the image
-#RUN git clone --depth=1 https://github.com/openwebwork/renderer.git /usr/app
-RUN git clone --depth=1 https://github.com/drdrew42/renderer.git /usr/app
-
-# In your Dockerfile:
-RUN git clone --depth=1 --branch 5.65.19 https://github.com/codemirror/CodeMirror.git /tmp/codemirror \
-    && cp -r /tmp/codemirror/theme /tmp/codemirror/addon /usr/app/lib/WeBWorK/htdocs/js/vendor/codemirror \
-    && rm -rf /tmp/codemirror
-
-# After copying in the local monokai.css
-RUN sed -i "s|http://codemirror.net/theme/|/webwork2_files/js/vendor/codemirror/theme/|g" /usr/app/templates/columns/editorUI.html.ep
-
-# Clone PG version 2.17 directly into the image
-RUN git clone --depth=1 --branch PG-2.17 https://github.com/openwebwork/pg.git /usr/app/lib/PG
+#RUN git config --global advice.detachedHead false
+RUN git clone --depth=1 https://github.com/vosslab/webwork-pg-renderer.git /usr/app
 
 WORKDIR /usr/app/lib/WeBWorK/htdocs
 RUN npm install

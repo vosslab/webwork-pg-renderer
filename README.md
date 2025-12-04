@@ -143,6 +143,8 @@ Render PG problems programmatically using JSON POST requests.
 - Host note: `script/lint.sh` expects `Future::AsyncAwait 0.52+`; install via cpanm/apt/brew or run the lint inside the container (`podman exec pg-test ./script/lint.sh`)
 - Dependencies: see `cpanfile` for CPAN module requirements; install locally with `cpanm --installdeps .` (e.g., `PERL_CPANM_HOME=$PWD/.cpanm PERL_CPANM_OPT='-L local' cpanm --installdeps .`)
   - `script/lint.sh` will attempt `cpanm --installdeps .` automatically if `cpanm` is available on the host.
+- Quick env setup: `source script/dev-env.sh` to set `PERL5LIB` and cpanm paths for local work; this is handy before manual `cpanm` calls.
+- Lint scope: host lint checks RenderApp core + safe controllers/models + TikZ shim; full PG/WeBWorK lint should be run inside the container via `podman exec pg-test ./script/lint-full.sh`
 
 ### Health Check
 `GET /health` returns JSON including mode, status, and detected jQuery/UI versions. A `tikzimage` flag verifies `TikZImage.pm` is loadable inside the container.

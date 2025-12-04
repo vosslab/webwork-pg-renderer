@@ -1,6 +1,7 @@
 requires 'CGI';
 requires 'Class::Accessor';
 requires 'Crypt::JWT';
+requires 'Data::Structure::Util';
 requires 'DBI';
 requires 'DateTime';
 requires 'Future::AsyncAwait', '0.52';
@@ -12,6 +13,7 @@ requires 'Proc::ProcessTable';
 requires 'String::ShellQuote';
 requires 'Test::Mojo';
 requires 'Test::More';
+requires 'GD';
 requires 'Tie::IxHash';
 requires 'TimeDate';             # Date::Format
 requires 'UUID::Tiny';

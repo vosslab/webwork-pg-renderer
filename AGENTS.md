@@ -1,37 +1,29 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- App wiring lives in `lib/RenderApp.pm` and `lib/RenderApp/*` (controllers, model); PG/WeBWorK engine is vendored under `lib/PG` and `lib/WeBWorK` (treat as third-party).
-- UI: `templates/` (layout/navbar) and `public/` (JS/CSS, CodeMirror, navbar defaults).
-- Config: `render_app.conf.dist` is the base; copy to `render_app.conf` for local overrides. Runtime: `logs/` for render logs, `local_pg_files/` for user problems.
-- Entrypoints: `script/render_app` for `morbo`/`hypnotoad`; containers via `docker-compose.yml`, `Dockerfile`, `Dockerfile_with_OPL`. k8 manifests are legacy/optional and not required for the PG tester.
-- Architecture reference: `ARCHITECTURE.md` for request flow and component roles.
+## Project Structure & Scope
+- Purpose: a lightweight PG/PGML renderer/editor only; no LMS/grading or cloud deployment. K8s manifests are legacy/optional.
+- App glue: `lib/RenderApp.pm` plus `lib/RenderApp/*` controllers/models. Treat `lib/PG` and `lib/WeBWorK` as vendored engine code.
+- UI: `templates/` for Mojolicious views/layouts, `public/` for static assets (CodeMirror, navbar CSS/JS). Default editor text lives in `templates/columns/editorUI.html.ep`.
+- Runtime: user-editable problems under `local_pg_files/` (mounted as `private/`), logs in `logs/`, config defaults in `render_app.conf.dist` (copy to `render_app.conf` locally).
+- Entrypoints: `script/render_app` (morbo/hypnotoad), `docker-compose.yml` + `run.sh` for containers, `Dockerfile_with_OPL` only if you need OPL content.
 
-## Build, Test, and Development Commands
-- `podman build -t pg-renderer .` builds the image; `podman-compose up -d` starts the app on `localhost:3000` (logs via `podman logs -f pg-test`); `podman-compose down` stops and cleans up.
-- Hot-reload development: `MOJO_MODE=development morbo script/render_app -l http://*:3000` (serves locally without containers).
-- Production-like daemon: `hypnotoad -f script/render_app` (used in the compose service).
-- Sample render check: `curl -X POST http://localhost:3000/render-api -d '{"sourceFilePath":"private/myproblem.pg","problemSeed":1234,"outputFormat":"static"}'`.
-- Smoke checks (server running): `./script/smoke.sh` (curl) or `perl script/smoke.pl` (Mojo::UserAgent, no curl needed).
-- Bundled JS versions: jQuery **1.12.4** at `/webwork2_files/js/vendor/jquery/jquery-1.12.4.min.js`, jQuery UI **1.12.1** at `/webwork2_files/js/vendor/jquery/jquery-ui-1.12.1.min.js` with `ui-lightness` CSS at `/webwork2_files/js/vendor/jquery/jquery-ui-1.12.1/css/jquery-ui.css`.
+## Build, Run, and Smoke Tests
+- Local dev (no containers): `MOJO_MODE=development morbo script/render_app -l http://*:3000`.
+- Daemon: `hypnotoad -f script/render_app`.
+- Containers: `podman-compose build --no-cache && podman-compose up -d`; stop with `podman-compose down`.
+- Smoke (server running): `perl script/smoke.pl` uses `Mojo::UserAgent` to hit `/health` and `/render-api` (avoids curl version flags). `./script/smoke.sh` remains for curl-based checks.
+- Manual render example: `curl -X POST http://localhost:3000/render-api -H 'Content-Type: application/json' -d '{"sourceFilePath":"private/myproblem.pg","problemSeed":1234,"outputFormat":"classic"}'`.
 
-## Coding Style & Naming Conventions
-- Perl 5.10+ with `strict`/`warnings` is the norm; prefer lexical `my` variables and early returns on guard clauses.
-- Match surrounding indentation (tabs appear in existing files; align to 4-space columns when adding new code) and keep line lengths reasonable.
-- Controllers and helpers live under `RenderApp::*`; keep filenames and package names in sync (e.g., `RenderApp::Controller::IO` in `RenderApp/Controller/IO.pm`).
-- For PG internals touched under `lib/PG`, follow the bundled `.perltidyrc` by running `perltidy -pro=lib/PG/.perltidyrc <file>`.
+## Coding Style & Conventions
+- Perl with `strict`/`warnings`; prefer early returns and lexical variables. Keep package names in sync with file paths (`RenderApp::Controller::Render` → `lib/RenderApp/Controller/Render.pm`).
+- Match nearby indentation (4-space preferred in new code), avoid large refactors inside vendored PG/WeBWorK unless necessary.
+- Run `perltidy -pro=lib/PG/.perltidyrc <file>` when touching PG-side code.
 
-## Testing Guidelines
-- There is no automated suite; validate changes by hitting `GET /health` and rendering a known PG file (`private/myproblem.pg`) through the UI or the `curl` example above.
-- When modifying API parameters or output, document the change in `README.md` and include a short reproduction note in the PR description.
-- Use `script/smoke.sh` for a quick pass; add focused scripts under `script/` for new endpoints rather than changing vendored PG code.
-- Scope reminder: this project exists only to render/test PG/PGML locally; don’t add LMS/gradebook or deployment complexity here.
+## Testing Expectations
+- No formal suite; always verify `GET /health` returns JSON and that `POST /render-api` renders `private/myproblem.pg` (or your file in `local_pg_files/`).
+- When adjusting API params or defaults (seed, template, outputFormat), document the change in `README.md` and add a short reproduction snippet to the PR.
+- Add small scripted checks under `script/` instead of altering vendored PG when you need coverage.
 
-## Commit & Pull Request Guidelines
-- Use short, imperative commit subjects (recent history favors concise titles like “updated”, “new build system”); group related changes per commit.
-- PRs should include: purpose, key changes, manual verification steps (commands/output), and screenshots/GIFs for UI-affecting work.
-- Link issues or tickets when applicable and call out breaking API or configuration changes explicitly.
-
-## Configuration & Security Tips
-- Do not commit secrets; create `render_app.conf` locally from `render_app.conf.dist` and use environment overrides (`MOJO_MODE`, `baseURL`, `SITE_HOST`, `CORS_ORIGIN`, JWT secrets).
-- Logs write to `logs/`; ensure writable permissions in local dev. Mount `local_pg_files/` for any sample or user-authored problems instead of editing embedded PG assets.
+## Commits, PRs, and Safety
+- Use short imperative subjects; keep unrelated changes split. PRs should include purpose, key changes, manual verification commands, and screenshots for UI tweaks.
+- Never commit secrets; rely on `render_app.conf` and env vars (`MOJO_MODE`, `SITE_HOST`, `CORS_ORIGIN`, JWT secrets). Keep writable paths to `local_pg_files/` and `logs/`.

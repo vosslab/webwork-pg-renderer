@@ -1,8 +1,8 @@
 # webwork-pg-renderer
 
-A standalone PG problem renderer and editor derived from [WeBWorK](https://github.com/openwebwork/WeBWorK2), built for lightweight use cases like PG development, previewing, and local problem testing. This version includes a self-contained copy of PG (v2.17), local CodeMirror themes, and no submodules.
+A standalone PG problem renderer and editor derived from [WeBWorK](https://github.com/openwebwork/WeBWorK2), built for lightweight PG development, previewing, and local problem testing. This repo bundles PG 2.17, CodeMirror themes, and required JS/CSS so it can run offline.
 
-**Scope:** This project’s only goal is to render/test PG/PGML locally. It is not a full WeBWorK deployment; deployment artifacts (e.g., k8 manifests) are optional/legacy.
+**Scope:** Only render/test PG/PGML locally. It is not a full WeBWorK deployment; deployment/k8s artifacts are legacy/optional.
 
 ---
 
@@ -37,6 +37,8 @@ podman-compose build --no-cache
 podman-compose up -d
 ```
 
+> Tip: `./run.sh` wraps the build/up/log tail steps if you prefer a single command.
+
 ### 4. Open the web interface
 ```bash
 open "http://localhost:3000/"
@@ -44,7 +46,7 @@ open "http://localhost:3000/"
 
 ### 5. Test a problem
 
-A test file is already included: `private/myproblem.pg`
+A test file is already included: `private/myproblem.pg` (from `local_pg_files/`).
 Use that path in the editor to load and render the PG problem.
 
 ### 6. Check logs (optional)
@@ -64,7 +66,8 @@ podman image prune
 ```bash
 webwork-pg-renderer/
 ├── lib/
-│   └── PG/                      # Embedded PG 2.17 (no submodule)
+│   ├── PG/                      # Embedded PG 2.17 (no submodule)
+│   └── WeBWorK/                 # Vendored WeBWorK runtime pieces
 ├── templates/                  # Mojolicious HTML templates
 ├── public/                     # Static assets
 ├── script/
@@ -72,7 +75,7 @@ webwork-pg-renderer/
 ├── Dockerfile                  # Container build file
 ├── docker-compose.yml          # Container setup
 ├── run.sh                      # Launch script
-└── local_pg_files/             # Your local PG problems
+└── local_pg_files/             # Your local PG problems (mounted as private/)
 ```
 
 ---
@@ -102,7 +105,7 @@ Render PG problems programmatically using JSON POST requests.
 | `sourceFilePath` | string   | Path to `.pg` file (e.g. `private/hello.pg`) |
 | `problemSource`  | base64   | Inline encoded source (optional) |
 | `problemSeed`    | number   | Random seed |
-| `outputFormat`   | string   | `static`, `practice`, `classic`, etc. |
+| `outputFormat`   | string   | `classic` (default), `static`, `practice`, etc. |
 | `permissionLevel`| number   | 0 = student, 10 = prof, 20 = admin |
 | `showHints`      | boolean  | Show hints |
 | `showSolutions`  | boolean  | Show solutions |
@@ -130,9 +133,11 @@ Render PG problems programmatically using JSON POST requests.
 - No submodules — just copy and go
 - Renderer listens on port `3000`
 - Default render format is `classic`; a random `problemSeed` is generated when none is provided
-- Run `script/smoke.sh` (with the server running) for a quick `/health` + render API check
-- Alternatively, use `perl script/smoke.pl` for a curl-free smoke test using `Mojo::UserAgent`
+- Run `perl script/smoke.pl` (server running) for `/health` + render checks without curl version quirks; `script/smoke.sh` is kept for curl users
 - See `ARCHITECTURE.md` for a walkthrough of the app flow and components
+
+### Health Check
+`GET /health` returns JSON including mode, status, and detected jQuery/UI versions. A `tikzimage` flag verifies `TikZImage.pm` is loadable inside the container.
 
 ---
 

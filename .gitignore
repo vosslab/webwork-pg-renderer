@@ -15,3 +15,9 @@ node_modules/*
 *.pm.tdy
 *.bs
 .idea/
+.cpanm/
+local/
+*.swp
+*.swo
+*.bak
+*.tmp

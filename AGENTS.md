@@ -12,7 +12,7 @@
 - Hot-reload development: `MOJO_MODE=development morbo script/render_app -l http://*:3000` (serves locally without containers).
 - Production-like daemon: `hypnotoad -f script/render_app` (used in the compose service).
 - Sample render check: `curl -X POST http://localhost:3000/render-api -d '{"sourceFilePath":"private/myproblem.pg","problemSeed":1234,"outputFormat":"static"}'`.
-- Smoke check: with the server running, `./script/smoke.sh` (uses `/health` and `/render-api`; defaults to HTTP/1.0 for curl compatibility).
+- Smoke checks (server running): `./script/smoke.sh` (curl) or `perl script/smoke.pl` (Mojo::UserAgent, no curl needed).
 
 ## Coding Style & Naming Conventions
 - Perl 5.10+ with `strict`/`warnings` is the norm; prefer lexical `my` variables and early returns on guard clauses.

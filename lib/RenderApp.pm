@@ -111,7 +111,10 @@ sub startup {
 	# Routes to controller
 
 	$r->any('/render-api')->to('render#problem');
-	$r->any('/health' => sub {shift->rendered(200)});
+	$r->any('/health' => sub {
+		my $c = shift;
+		$c->render( json => { status => 'ok', mode => $c->app->mode }, status => 200 );
+	});
 	if ($self->mode eq 'development') {
 		$r->any('/')->to('pages#twocolumn');
 		$r->any('/opl')->to('pages#oplUI');

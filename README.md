@@ -129,6 +129,7 @@ Render PG problems programmatically using JSON POST requests.
 - Renderer listens on port `3000`
 - Default render format is `classic`; a random `problemSeed` is generated when none is provided
 - Run `script/smoke.sh` (with the server running) for a quick `/health` + render API check
+- Alternatively, use `perl script/smoke.pl` for a curl-free smoke test using `Mojo::UserAgent`
 - See `ARCHITECTURE.md` for a walkthrough of the app flow and components
 
 ---

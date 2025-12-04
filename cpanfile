@@ -1,15 +1,18 @@
-requires 'Mojolicious';
-requires 'Future::AsyncAwait', '0.52';
-requires 'DateTime';
-requires 'TimeDate';             # Date::Format
-requires 'Crypt::JWT';
-requires 'Math::Random::Secure';
-requires 'JSON::XS';
-requires 'UUID::Tiny';
-requires 'Class::Accessor';
-requires 'String::ShellQuote';
-requires 'Locale::Maketext::Lexicon';
 requires 'CGI';
+requires 'Class::Accessor';
+requires 'Crypt::JWT';
+requires 'DBI';
+requires 'DateTime';
+requires 'Future::AsyncAwait', '0.52';
+requires 'JSON::XS';
+requires 'Locale::Maketext::Lexicon';
+requires 'Math::Random::Secure';
+requires 'Mojolicious';
 requires 'Proc::ProcessTable';
-requires 'Test::More';
+requires 'String::ShellQuote';
 requires 'Test::Mojo';
+requires 'Test::More';
+requires 'Tie::IxHash';
+requires 'TimeDate';             # Date::Format
+requires 'UUID::Tiny';
+requires 'YAML::XS';

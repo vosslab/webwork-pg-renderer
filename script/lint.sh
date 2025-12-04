@@ -7,10 +7,12 @@ export PERL5LIB="lib:lib/WeBWorK:lib/WeBWorK/lib:lib/PG:lib/PG/lib:local/lib/per
 
 # Ensure deps from cpanfile are installed locally if cpanm is available.
 if command -v cpanm >/dev/null 2>&1; then
-echo "Ensuring CPAN deps (cpanfile) are installed locally..."
-export PERL_CPANM_HOME=${PERL_CPANM_HOME:-$PWD/.cpanm}
-export PERL_CPANM_OPT=${PERL_CPANM_OPT:--L local}
-cpanm --installdeps . >/dev/null || true
+  echo "Ensuring CPAN deps (cpanfile) are installed locally..."
+  export PERL_CPANM_HOME=${PERL_CPANM_HOME:-$PWD/.cpanm}
+  export PERL_CPANM_OPT=${PERL_CPANM_OPT:--L local}
+  mkdir -p "$PERL_CPANM_HOME/work"
+  export PERL_CPANM_WORK=${PERL_CPANM_WORK:-$PERL_CPANM_HOME/work}
+  cpanm --installdeps --auto-cleanup --quiet . || true
 else
   echo "cpanm not found; skipping cpanfile deps. Install cpanm for host-side lint, or run lint inside the container."
 fi
@@ -23,15 +25,10 @@ if ! perl -e 'use Future::AsyncAwait 0.52;' >/dev/null 2>&1; then
 fi
 
 echo "Perl syntax check (all modules)..."
-mapfile -d '' modules < <(find lib -name '*.pm' -print0)
-total=${#modules[@]}
-idx=0
-for file in "${modules[@]}"; do
-  idx=$((idx+1))
-  printf '\r[%d/%d] perl -c %s' "$idx" "$total" "$file"
-  perl -c "$file"
+find lib -type d -maxdepth 2 | while read -r dir; do
+  printf '  -> %s\n' "$dir"
+  find "$dir" -name '*.pm' -print0 | xargs -0 -n1 perl -c
 done
-echo
 
 echo "Perl syntax check (scripts)..."
 perl -c script/render_app script/smoke.pl

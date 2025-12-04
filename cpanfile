@@ -10,5 +10,6 @@ requires 'Class::Accessor';
 requires 'String::ShellQuote';
 requires 'Locale::Maketext::Lexicon';
 requires 'CGI';
+requires 'Proc::ProcessTable';
 requires 'Test::More';
 requires 'Test::Mojo';

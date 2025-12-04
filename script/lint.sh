@@ -3,13 +3,13 @@ set -euo pipefail
 
 # Make sure in-repo libs and vendored deps are on the path for syntax checks.
 # Include vendor-installed modules under ./local if present.
-export PERL5LIB="lib:lib/WeBWorK/lib:lib/PG:local/lib/perl5:${PERL5LIB:-}"
+export PERL5LIB="lib:lib/WeBWorK:lib/WeBWorK/lib:lib/PG:lib/PG/lib:local/lib/perl5:${PERL5LIB:-}"
 
 # Ensure deps from cpanfile are installed locally if cpanm is available.
 if command -v cpanm >/dev/null 2>&1; then
   echo "Ensuring CPAN deps (cpanfile) are installed locally..."
-  PERL_CPANM_HOME=${PERL_CPANM_HOME:-$PWD/.cpanm}
-  PERL_CPANM_OPT=${PERL_CPANM_OPT:--L local}
+  export PERL_CPANM_HOME=${PERL_CPANM_HOME:-$PWD/.cpanm}
+  export PERL_CPANM_OPT=${PERL_CPANM_OPT:--L local}
   cpanm --installdeps . >/dev/null || true
 else
   echo "cpanm not found; skipping cpanfile deps. Install cpanm for host-side lint, or run lint inside the container."

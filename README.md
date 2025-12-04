@@ -135,8 +135,14 @@ Render PG problems programmatically using JSON POST requests.
 - Default render format is `classic`; a random `problemSeed` is generated when none is provided
 - Perl search path (inside the container): `/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib` (set via `PERL5LIB` in `Dockerfile` and `docker-compose.yml`)
 - TikZ health check: `lib/PG/TikZImage.pm` is a minimal shim to satisfy `require TikZImage;` for `/health`
+- Submit reliability: the client now binds clicks to all submit controls inside the rendered iframe (not just Bootstrap-styled buttons) so `submitAnswers` posts consistently
 - Run `perl script/smoke.pl` (server running) for `/health` + render checks without curl version quirks; `script/smoke.sh` is kept for curl users
 - See `ARCHITECTURE.md` for a walkthrough of the app flow and components
+- Local lint/sanity: `script/lint.sh` runs `perl -c` across modules/scripts and shellcheck (if available) against `run.sh` and `script/smoke.sh`
+- Tests: `prove -lr t` (includes `t/health.t`), `perl script/pg-smoke.pl` for a quick render canary
+- Host note: `script/lint.sh` expects `Future::AsyncAwait 0.52+`; install via cpanm/apt/brew or run the lint inside the container (`podman exec pg-test ./script/lint.sh`)
+- Dependencies: see `cpanfile` for CPAN module requirements; install locally with `cpanm --installdeps .` (e.g., `PERL_CPANM_HOME=$PWD/.cpanm PERL_CPANM_OPT='-L local' cpanm --installdeps .`)
+  - `script/lint.sh` will attempt `cpanm --installdeps .` automatically if `cpanm` is available on the host.
 
 ### Health Check
 `GET /health` returns JSON including mode, status, and detected jQuery/UI versions. A `tikzimage` flag verifies `TikZImage.pm` is loadable inside the container.

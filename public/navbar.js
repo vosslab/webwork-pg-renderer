@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', ensureDefaults);
 let loadbutton=document.getElementById("load-problem");
 let savebutton=document.getElementById("save-problem");
 let renderbutton=document.getElementById("render-button");
+let debugbutton=document.getElementById("debug-form");
 let problemiframe = document.getElementById("rendered-problem");
 
 problemiframe.addEventListener('load', () => { console.log("loaded..."); insertListener(); activeButton(); } )
@@ -167,11 +168,27 @@ renderbutton.addEventListener("click", event => {
   return true;
 });
 
+debugbutton.addEventListener("click", event => {
+  const doc = problemiframe.contentWindow.document;
+  const form = doc.getElementById('problemMainForm');
+  const submits = form ? [...form.querySelectorAll('input[type="submit"],button[type="submit"]')] : [];
+  const clicked = form ? form.querySelector('.btn-clicked') : null;
+  const payload = {
+    formPresent: !!form,
+    submitControls: submits.map(b => ({ name: b.name, value: b.value, class: b.className })),
+    clickedPresent: !!clicked
+  };
+  console.log("[debug-form-state]", payload);
+  alert(`form: ${payload.formPresent}\nsubmits: ${payload.submitControls.length}\nclicked: ${payload.clickedPresent}`);
+});
+
 function activeButton() {
   let problemForm = problemiframe.contentWindow.document.getElementById('problemMainForm')
   if (!problemForm) {console.log("could not find form! has a problem been rendered?"); return;}
-  problemForm.querySelectorAll('.btn-primary').forEach( button => {
+  // Bind to any submit controls, not just Bootstrap-styled ones.
+  problemForm.querySelectorAll('input[type="submit"], button[type="submit"]').forEach(button => {
     button.addEventListener('click', () => {
+      problemForm.querySelectorAll('.btn-clicked').forEach(b => b.classList.remove('btn-clicked'));
       button.classList.add("btn-clicked");
       console.log("clicked: ", button);
     })
@@ -183,6 +200,7 @@ function insertListener() {
   let problemForm = problemiframe.contentWindow.document.getElementById('problemMainForm')
   // don't croak when the empty iframe is first loaded
   if (!problemForm) {console.log("could not find form! has a problem been rendered?"); return;}
+  console.log("binding submit listener to rendered problem form");
   problemForm.addEventListener("submit", event => {
     event.preventDefault()
     let formData = new FormData(problemForm)
@@ -203,7 +221,17 @@ function insertListener() {
   formData.set("sourceFilePath", document.getElementById('sourceFilePath').value);
   formData.set("problemSeed", document.getElementById('problemSeed').value);
     formData.set("outputFormat", outputFormat);
-    formData.set(clickedButton.name, clickedButton.value);
+    if (!clickedButton) {
+      console.warn("submit aborted: no .btn-clicked found on problem form");
+      // fall back to first submit control so we can still submit and log the issue
+      clickedButton = problemForm.querySelector('input[type=\"submit\"], button[type=\"submit\"]');
+    }
+    if (clickedButton) {
+      formData.set(clickedButton.name, clickedButton.value);
+    } else {
+      console.warn("submit aborted: no submit control found on problem form");
+      return;
+    }
 
 //  // Version tracking steps to replace window.btoa with code supporting Unicode text
 //  encoder = new TextEncoder();

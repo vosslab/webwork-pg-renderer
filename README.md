@@ -2,6 +2,8 @@
 
 A standalone PG problem renderer and editor derived from [WeBWorK](https://github.com/openwebwork/WeBWorK2), built for lightweight use cases like PG development, previewing, and local problem testing. This version includes a self-contained copy of PG (v2.17), local CodeMirror themes, and no submodules.
 
+**Scope:** This project’s only goal is to render/test PG/PGML locally. It is not a full WeBWorK deployment; deployment artifacts (e.g., k8 manifests) are optional/legacy.
+
 ---
 
 ## 🔧 Features
@@ -125,6 +127,9 @@ Render PG problems programmatically using JSON POST requests.
 - All required `.css` and `.js` assets are bundled locally
 - No submodules — just copy and go
 - Renderer listens on port `3000`
+- Default render format is `classic`; a random `problemSeed` is generated when none is provided
+- Run `script/smoke.sh` (with the server running) for a quick `/health` + render API check
+- See `ARCHITECTURE.md` for a walkthrough of the app flow and components
 
 ---
 

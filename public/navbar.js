@@ -4,6 +4,19 @@ function templateSelect(element) {
   document.querySelector("#template-select").innerHTML = element.innerText + ' <i class="fa fa-caret-down"></i>';
 }
 
+function ensureDefaults() {
+  const defaultTemplate = document.getElementById('classic');
+  if (defaultTemplate && !document.querySelector('.dropdown-item.selected')) {
+    templateSelect(defaultTemplate);
+  }
+  const seedInput = document.getElementById('problemSeed');
+  if (seedInput && (!seedInput.value || seedInput.value.trim() === '')) {
+    const randSeed = 1 + Math.floor(Math.random() * 999999);
+    seedInput.value = randSeed;
+    seedInput.placeholder = randSeed;
+  }
+}
+
 $(function(){
   $('#hiddenSourceFilePath').text($('#sourceFilePath').val());
   $('#sourceFilePath').width($('#hiddenSourceFilePath').width());
@@ -13,6 +26,8 @@ $(function(){
   const remaining = document.querySelector(".topnav").offsetWidth-document.querySelector("#template-select").offsetWidth-330;
   $('#sourceFilePath').css('maxWidth',remaining);
 });
+
+document.addEventListener('DOMContentLoaded', ensureDefaults);
 
 let loadbutton=document.getElementById("load-problem");
 let savebutton=document.getElementById("save-problem");
@@ -96,12 +111,15 @@ renderbutton.addEventListener("click", event => {
   const selectedformat = document.querySelector(".dropdown-item.selected");
   let outputFormat;
   if ( selectedformat === null) {
-    console.log(typeof selectedformat);
-    alert("No output format selected. Defaulting to 'classic' format.");
+    const fallback = document.getElementById('classic');
     outputFormat = 'classic';
+    if (fallback) {
+      templateSelect(fallback);
+    }
   } else {
     outputFormat = selectedformat.id;
   }
+  ensureDefaults();
   let formData = new FormData();
   formData.set("permissionLevel", 20);
   formData.set("includeTags", 1);
@@ -170,19 +188,20 @@ function insertListener() {
     let formData = new FormData(problemForm)
     let clickedButton = problemForm.querySelector('.btn-clicked')
     formData.set("format", "json");
-    const selectedformat = document.querySelector(".dropdown-item.selected");
-    let outputFormat;
-    if ( selectedformat === null ) {
-      alert("No output format selected. Defaulting to 'classic' format.");
-      outputFormat = 'classic';
-    } else {
-      outputFormat = selectedformat.id;
-    }
-    formData.set("permissionLevel", 20);
-    formData.set("includeTags", 1);
-    formData.set("showComments", 1);
-    formData.set("sourceFilePath", document.getElementById('sourceFilePath').value);
-    formData.set("problemSeed", document.getElementById('problemSeed').value);
+  const selectedformat = document.querySelector(".dropdown-item.selected");
+  let outputFormat;
+  if ( selectedformat === null ) {
+    alert("No output format selected. Defaulting to 'classic' format.");
+    outputFormat = 'classic';
+  } else {
+    outputFormat = selectedformat.id;
+  }
+  ensureDefaults();
+  formData.set("permissionLevel", 20);
+  formData.set("includeTags", 1);
+  formData.set("showComments", 1);
+  formData.set("sourceFilePath", document.getElementById('sourceFilePath').value);
+  formData.set("problemSeed", document.getElementById('problemSeed').value);
     formData.set("outputFormat", outputFormat);
     formData.set(clickedButton.name, clickedButton.value);
 

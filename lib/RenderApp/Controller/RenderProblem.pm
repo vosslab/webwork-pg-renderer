@@ -84,14 +84,19 @@ sub process_pg_file {
     our $seed_ce = create_course_environment();
 
     my $file_path = $problem->path;
-    my $problem_seed = $problem->seed || '666';
+    my $problem_seed = $problem->seed;
+    unless ( defined $problem_seed && $problem_seed =~ /\S/ ) {
+        $problem_seed = 1 + int rand(999999);
+        $problem->seed($problem_seed);
+    }
 
     # just make sure we have the fundamentals covered...
     $inputHash->{displayMode} =
       'MathJax';    #	is there any reason for this to be anything else?
     $inputHash->{sourceFilePath} ||= $file_path;
-    $inputHash->{outputFormat}   ||= 'static';
+    $inputHash->{outputFormat}   ||= 'classic';
     $inputHash->{language}       ||= 'en';
+    $inputHash->{problemSeed}    ||= $problem_seed;
 
     # HACK: required for problemRandomize.pl
     $inputHash->{effectiveUser} = 'red.ted';
@@ -345,7 +350,8 @@ sub standaloneRenderer {
     my $showSolutions    = $inputs_ref->{showSolutions} // 0;
     my $problemNumber    = $inputs_ref->{problemNumber} // 1;          # ever even relevant?
     my $displayMode      = $inputs_ref->{displayMode} || 'MathJax';    # $ce->{pg}->{options}->{displayMode};
-    my $problem_seed     = $inputs_ref->{problemSeed} || 1234;
+    my $problem_seed     = $inputs_ref->{problemSeed};
+    $problem_seed = 1 + int rand(999999) unless defined $problem_seed && $problem_seed =~ /\S/;
     my $permission_level = $inputs_ref->{permissionLevel} || 0;        # permissionLevel >= 10 will show hints, solutions + open all scaffold
     my $num_correct      = $inputs_ref->{numCorrect} || 0;             # consider replacing - this may never be relevant...
     my $num_incorrect    = $inputs_ref->{numIncorrect} // 1000;        # default to exceed any problem's showHint threshold unless provided

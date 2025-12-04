@@ -196,10 +196,12 @@ async sub problem {
     $ww_return_hash->{renderedHTML} =~ s/JWTanswerURLstatus//;
   }
 
-  $c->respond_to(
-    html => { text => $ww_return_hash->{renderedHTML} },
-    json => { json => $ww_return_hash }
-  );
+  # Default to JSON response to avoid deprecated ?format usage.
+  my $format = $c->param('_format') // 'json';
+  if ($format eq 'html') {
+    return $c->render( text => $ww_return_hash->{renderedHTML} );
+  }
+  return $c->render( json => $ww_return_hash );
 }
 
 sub checkInputs {
@@ -256,13 +258,7 @@ sub exception {
   my $id = $c->logID;
   my $message = "[$id] " . shift;
   my $status = shift;
-  return $c->respond_to(
-    json => { json => {
-        message => $message,
-        status => $status,
-      }, status => $status},
-    html => { template => 'exception', message => $message, status => $status }
-  );
+  return $c->render(json => { message => $message, status => $status }, status => $status);
 }
 
 sub croak {

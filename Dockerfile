@@ -5,6 +5,7 @@ MAINTAINER openwebwork
 WORKDIR /usr/app
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Chicago
+ENV PERL5LIB=/usr/app/lib:/usr/app/lib/WeBWorK/lib:/usr/app/lib/PG:$PERL5LIB
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --no-install-suggests \
@@ -68,8 +69,12 @@ RUN apt-get update \
 #    && rm -fr ./cpanm /root/.cpanm /tmp/*
 
 WORKDIR /usr/app
-#RUN git config --global advice.detachedHead false
-RUN git clone --depth=1 https://github.com/vosslab/webwork-pg-renderer.git /usr/app
+# Copy the current repository contents (including local edits) into the image.
+COPY . /usr/app
+
+WORKDIR /usr/app/lib/WeBWorK/htdocs
+COPY lib/WeBWorK/htdocs/package*.json lib/WeBWorK/htdocs/
+COPY lib/PG/htdocs/package*.json lib/PG/htdocs/
 
 WORKDIR /usr/app/lib/WeBWorK/htdocs
 RUN npm install
@@ -80,6 +85,10 @@ RUN npm install
 WORKDIR /usr/app
 
 EXPOSE 3000
+
+COPY . /usr/app
+# Ensure TikZImage shim is present in the image (sometimes omitted by upstream PG).
+COPY lib/PG/TikZImage.pm /usr/app/lib/PG/TikZImage.pm
 
 #HEALTHCHECK CMD curl -I localhost:3000/health
 CMD hypnotoad -f ./script/render_app

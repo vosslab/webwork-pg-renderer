@@ -122,6 +122,7 @@ sub startup {
 
 		my $jquery_version    = $get_version->("$ENV{WEBWORK_ROOT}/htdocs/js/vendor/jquery/jquery-1.12.4.min.js", qr/v(\d+\.\d+\.\d+)/);
 		my $jquery_ui_version = $get_version->("$ENV{WEBWORK_ROOT}/htdocs/js/vendor/jquery/jquery-ui-1.12.1.min.js", qr/v(\d+\.\d+\.\d+)/);
+		my $tikz_ok           = eval { require TikZImage; 1 } ? Mojo::JSON->true : Mojo::JSON->false;
 
 		$c->render(
 			json => {
@@ -132,6 +133,7 @@ sub startup {
 					codemirror  => '5.65.19',
 					jquery      => $jquery_version,
 					jquery_ui   => $jquery_ui_version,
+					tikzimage   => $tikz_ok,
 				},
 			},
 			status => 200

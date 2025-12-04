@@ -11,7 +11,7 @@ BASE_URL=${BASE_URL%/}
 run_curl() {
   local url=$1
   shift
-  ${CURL_BIN} ${CURL_FLAGS} "$url" "$@"
+  ${CURL_BIN} ${CURL_FLAGS} --http1.1 "$url" "$@"
 }
 
 echo "Health check: ${BASE_URL}/health"

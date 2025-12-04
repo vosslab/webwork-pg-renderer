@@ -13,6 +13,7 @@
 - Production-like daemon: `hypnotoad -f script/render_app` (used in the compose service).
 - Sample render check: `curl -X POST http://localhost:3000/render-api -d '{"sourceFilePath":"private/myproblem.pg","problemSeed":1234,"outputFormat":"static"}'`.
 - Smoke checks (server running): `./script/smoke.sh` (curl) or `perl script/smoke.pl` (Mojo::UserAgent, no curl needed).
+- Bundled JS versions: jQuery **1.12.4** at `/webwork2_files/js/vendor/jquery/jquery-1.12.4.min.js`, jQuery UI **1.12.1** at `/webwork2_files/js/vendor/jquery/jquery-ui-1.12.1.min.js` with `ui-lightness` CSS at `/webwork2_files/js/vendor/jquery/jquery-ui-1.12.1/css/jquery-ui.css`.
 
 ## Coding Style & Naming Conventions
 - Perl 5.10+ with `strict`/`warnings` is the norm; prefer lexical `my` variables and early returns on guard clauses.

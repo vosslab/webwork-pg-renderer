@@ -6,16 +6,40 @@
 %= javascript '/webwork2_files/js/vendor/codemirror/codemirror.js'
 %= javascript '/webwork2_files/js/vendor/codemirror/PG.js'
 %= javascript '/webwork2_files/js/vendor/codemirror/PGaddons.js'
+<%
+  my $default_pgml = <<'PG';
+DOCUMENT();
+
+loadMacros('PGstandard.pl', 'PGML.pl', 'parserRadioButtons.pl', 'PGcourse.pl');
+
+$radio1 = RadioButtons(
+    [ [ 'Red', 'Blue', 'Green' ], 'None of these' ],
+    'Blue',    # correct answer
+);
+
+BEGIN_PGML
+My favorite color is
+
+[_]{$radio1}
+END_PGML
+
+BEGIN_PGML_SOLUTION
+The correct answer to the first is [$radio1->correct_ans].
+END_PGML_SOLUTION
+
+ENDDOCUMENT();
+PG
+%>
 
   <div id='edit-header' class='header'>
     <b>Editing problem:</b><br>
     <i><div id="currentEditPath"></div></i>
   </div>
   <div id='problem-editor' class='content'>
-    %= text_area problemContentsEditor => q(Load a problem, then click on "render contents."), id => 'problemContentsEditor'
+    %= text_area problemContentsEditor => $default_pgml, id => 'problemContentsEditor'
   </div>
 
-%= javascript '/webwork2_files/node_modules/jquery/dist/jquery.min.js'
+%= javascript '/webwork2_files/js/vendor/jquery/jquery-1.12.4.min.js'
 %= javascript '/webwork2_files/js/vendor/codemirror/addon/selection/active-line.js'
 %= javascript '/webwork2_files/js/vendor/codemirror/addon/edit/matchbrackets.js'
 %= javascript '/webwork2_files/js/vendor/codemirror/addon/edit/closebrackets.js'

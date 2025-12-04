@@ -113,7 +113,29 @@ sub startup {
 	$r->any('/render-api')->to('render#problem');
 	$r->any('/health' => sub {
 		my $c = shift;
-		$c->render( json => { status => 'ok', mode => $c->app->mode }, status => 200 );
+		my $get_version = sub {
+			my ($path, $regex) = @_;
+			return '' unless -r $path;
+			my $content = Mojo::File->new($path)->slurp;
+			return ($content =~ $regex) ? $1 : '';
+		};
+
+		my $jquery_version    = $get_version->("$ENV{WEBWORK_ROOT}/htdocs/js/vendor/jquery/jquery-1.12.4.min.js", qr/v(\d+\.\d+\.\d+)/);
+		my $jquery_ui_version = $get_version->("$ENV{WEBWORK_ROOT}/htdocs/js/vendor/jquery/jquery-ui-1.12.1.min.js", qr/v(\d+\.\d+\.\d+)/);
+
+		$c->render(
+			json => {
+				status => 'ok',
+				mode   => $c->app->mode,
+				deps   => {
+					pg          => '2.17',
+					codemirror  => '5.65.19',
+					jquery      => $jquery_version,
+					jquery_ui   => $jquery_ui_version,
+				},
+			},
+			status => 200
+		);
 	});
 	if ($self->mode eq 'development') {
 		$r->any('/')->to('pages#twocolumn');

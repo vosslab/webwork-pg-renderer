@@ -125,6 +125,8 @@ Render PG problems programmatically using JSON POST requests.
 - PG version: **2.17**
 - CodeMirror version: **5.65.19**
 - All required `.css` and `.js` assets are bundled locally
+- jQuery: **1.12.4** (`lib/WeBWorK/htdocs/js/vendor/jquery/jquery-1.12.4.min.js`)
+- jQuery UI: **1.12.1** (`lib/WeBWorK/htdocs/js/vendor/jquery/jquery-ui-1.12.1.min.js`, theme CSS in `.../jquery-ui-1.12.1/css/jquery-ui.css`)
 - No submodules — just copy and go
 - Renderer listens on port `3000`
 - Default render format is `classic`; a random `problemSeed` is generated when none is provided

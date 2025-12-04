@@ -10,7 +10,7 @@
 </div>
 <div id='render-contents' class='content'>
     <iframe class="iframe-responsive" id="rendered-problem">
-    Load a problem, then click on "render contents."
+    Render to see the sample PGML radio question.
     </iframe>
     %= javascript begin
     iFrameResize({ checkOrigin: false, scrolling: true }, "#rendered-problem")

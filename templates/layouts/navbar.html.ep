@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://fonts.googleapis.com/css?family=Montserrat:400" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/webwork2_files/js/vendor/jquery/jquery-ui-1.12.1/css/jquery-ui.css">
+    <script src="/webwork2_files/js/vendor/jquery/jquery-1.12.4.min.js"></script>
+    <script src="/webwork2_files/js/vendor/jquery/jquery-ui-1.12.1.min.js"></script>
     %= stylesheet '/navbar.css'
   </head>
   <body>

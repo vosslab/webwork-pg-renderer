@@ -1,4 +1,5 @@
 *.DS_Store
+.cpan
 render_app.conf
 lib/WeBWorK/htdocs/tmp/renderer/gif/*
 lib/WeBWorK/htdocs/tmp/renderer/images/*

@@ -1,6 +1,6 @@
 FROM ubuntu:24.04
-LABEL org.opencontainers.image.source=https://github.com/openwebwork/renderer
-MAINTAINER openwebwork
+LABEL org.opencontainers.image.source="https://github.com/vosslab/webwork-pg-renderer"
+LABEL maintainer="vosslab <support@vosslab.com>"
 
 WORKDIR /usr/app
 ARG DEBIAN_FRONTEND=noninteractive
@@ -86,8 +86,8 @@ WORKDIR /usr/app
 
 EXPOSE 3000
 
-COPY . /usr/app
 # Ensure TikZImage shim is present in the image (sometimes omitted by upstream PG).
+RUN mkdir -p /usr/app/lib/PG
 COPY lib/PG/TikZImage.pm /usr/app/lib/PG/TikZImage.pm
 
 #HEALTHCHECK CMD curl -I localhost:3000/health

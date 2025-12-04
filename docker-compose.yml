@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - PERL5LIB=/usr/app/lib
+      - PERL5LIB=/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib
       - MOJO_MODE=development
     volumes:
       - ${PWD}/local_pg_files:/usr/app/private:rw

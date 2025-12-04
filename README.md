@@ -133,6 +133,8 @@ Render PG problems programmatically using JSON POST requests.
 - No submodules — just copy and go
 - Renderer listens on port `3000`
 - Default render format is `classic`; a random `problemSeed` is generated when none is provided
+- Perl search path (inside the container): `/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib` (set via `PERL5LIB` in `Dockerfile` and `docker-compose.yml`)
+- TikZ health check: `lib/PG/TikZImage.pm` is a minimal shim to satisfy `require TikZImage;` for `/health`
 - Run `perl script/smoke.pl` (server running) for `/health` + render checks without curl version quirks; `script/smoke.sh` is kept for curl users
 - See `ARCHITECTURE.md` for a walkthrough of the app flow and components
 

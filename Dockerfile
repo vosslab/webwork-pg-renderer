@@ -1,11 +1,12 @@
 FROM ubuntu:24.04
-LABEL org.opencontainers.image.source="https://github.com/vosslab/webwork-pg-renderer"
-LABEL maintainer="vosslab <support@vosslab.com>"
+LABEL org.opencontainers.image.source="https://github.com/vossab/webwork-pg-renderer"
+LABEL maintainer="Neil Voss (@vossab) <https://github.com/vossab>"
 
 WORKDIR /usr/app
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Chicago
-ENV PERL5LIB=/usr/app/lib:/usr/app/lib/WeBWorK/lib:/usr/app/lib/PG:$PERL5LIB
+# Ensure Perl finds PG, WeBWorK, and app libs.
+ENV PERL5LIB=/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib:$PERL5LIB
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --no-install-suggests \

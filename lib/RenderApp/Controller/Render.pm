@@ -141,6 +141,8 @@ async sub problem {
   }
 
   my $ww_return_hash = decode_json($ww_return_json);
+  my $has_submit_button = ($ww_return_hash->{renderedHTML} // '') =~ /name="submitAnswers"/;
+  $c->log->warn("[no-submit-button] $inputs_ref->{sourceFilePath}") unless $has_submit_button;
   my @output_errs = checkOutputs($ww_return_hash);
   if (@output_errs) {
     my $err_log = "Output from rendering ".$inputs_ref->{sourceFilePath}." contained errors: {";

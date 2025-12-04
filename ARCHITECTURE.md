@@ -26,6 +26,7 @@ This repo’s sole purpose is to locally render and test WeBWorK PG/PGML problem
 - Env vars set in `RenderApp.pm` (`RENDER_ROOT`, `WEBWORK_ROOT`, `OPL_DIRECTORY`, `MOJO_CONFIG`). Copy `render_app.conf.dist` to override (CORS, JWT secrets, baseURL/formURL, cache headers).
 - Service defaults: `MOJO_MODE=development`, port `3000`, `outputFormat=classic`, random seed if missing.
 - Non-goals: LMS integration, grading pipelines, or production deployment; k8 manifests are legacy/optional. Bundled assets (jQuery/UI, CodeMirror) are local to keep the renderer offline-friendly.
+- Perl load path: `PERL5LIB` must include `/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib` (set in both `Dockerfile` and `docker-compose.yml`) so `TikZImage.pm` and other PG shims load for `/health`.
 
 ## Operational Notes
 - For dev without containers: `MOJO_MODE=development morbo -l http://*:3000 script/render_app`.

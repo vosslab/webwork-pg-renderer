@@ -145,6 +145,7 @@ Render PG problems programmatically using JSON POST requests.
   - `script/lint.sh` will attempt `cpanm --installdeps .` automatically if `cpanm` is available on the host.
 - Quick env setup: `source script/dev-env.sh` to set `PERL5LIB` and cpanm paths for local work; this is handy before manual `cpanm` calls.
 - Lint scope: host lint checks RenderApp core + safe controllers/models + TikZ shim; full PG/WeBWorK lint should be run inside the container via `podman exec pg-test ./script/lint-full.sh`
+- Container lint/full-stack: `script/lint-full.sh` sets `PERL5LIB` for PG/WeBWorK trees and is intended to run inside the container (`podman exec pg-test ./script/lint-full.sh || true`)
 
 ### Health Check
 `GET /health` returns JSON including mode, status, and detected jQuery/UI versions. A `tikzimage` flag verifies `TikZImage.pm` is loadable inside the container.

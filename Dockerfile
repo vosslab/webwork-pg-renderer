@@ -28,6 +28,8 @@ RUN apt-get update \
     texlive-pictures \
     texlive-latex-base \
     texlive-latex-recommended \
+    build-essential \
+    cpanminus \
     && apt-get clean \
     && rm -fr /var/lib/apt/lists/* /tmp/*
 
@@ -70,20 +72,24 @@ RUN apt-get update \
 #    && rm -fr ./cpanm /root/.cpanm /tmp/*
 
 WORKDIR /usr/app
-# Copy the current repository contents (including local edits) into the image.
-COPY . /usr/app
+COPY cpanfile /usr/app/
 
-WORKDIR /usr/app/lib/WeBWorK/htdocs
-COPY lib/WeBWorK/htdocs/package*.json lib/WeBWorK/htdocs/
-COPY lib/PG/htdocs/package*.json lib/PG/htdocs/
+# Install Perl dependencies from cpanfile into /usr/app/local (cacheable layer)
+RUN cpanm --notest --installdeps -L /usr/app/local . \
+    && rm -rf /root/.cpanm /tmp/*
 
+# Install npm deps using package manifests only (cacheable)
 WORKDIR /usr/app/lib/WeBWorK/htdocs
+COPY lib/WeBWorK/htdocs/package*.json /usr/app/lib/WeBWorK/htdocs/
 RUN npm install
 
 WORKDIR /usr/app/lib/PG/htdocs
+COPY lib/PG/htdocs/package*.json /usr/app/lib/PG/htdocs/
 RUN npm install
 
+# Now copy the full repo (changes here won't invalidate cpanm/npm layers)
 WORKDIR /usr/app
+COPY . /usr/app
 
 EXPOSE 3000
 

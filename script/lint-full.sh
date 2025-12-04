@@ -12,10 +12,18 @@ if [ ! -d "$PG_ROOT" ] || [ ! -d "$WEBWORK_ROOT" ]; then
   exit 1
 fi
 
+# Ensure PG/WeBWorK libs are on @INC, including PG_ROOT/lib where PGUtil.pm, ww_strict.pm live.
+export PERL5LIB="$PG_ROOT/lib:$PG_ROOT:$WEBWORK_ROOT/lib:$WEBWORK_ROOT:${PERL5LIB:-}"
+
 # Some PG modules expect VERSION in ../; add a symlink if needed.
 if [ -f "$PG_ROOT/VERSION" ] && [ ! -f "$PG_ROOT/../VERSION" ]; then
   ln -s "$PG_ROOT/VERSION" "$PG_ROOT/../VERSION" 2>/dev/null || true
 fi
 
 echo "Full Perl syntax check (WeBWorK/PG + app)..."
-find lib -maxdepth 6 -type f -name '*.pm' -print0 | xargs -0 -n1 perl -c
+find lib -maxdepth 6 -type f -name '*.pm' \
+  ! -path 'lib/PG/lib/AnswerIO.pm' \
+  -print0 | xargs -0 -n1 perl -c
+
+# Handle PG answer modules with their expected preloads.
+perl -I"$PG_ROOT/lib" -Mww_strict -MPGUtil -c lib/PG/lib/AnswerIO.pm

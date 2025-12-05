@@ -170,8 +170,10 @@ renderbutton.addEventListener("click", event => {
 function activeButton() {
   let problemForm = problemiframe.contentWindow.document.getElementById('problemMainForm')
   if (!problemForm) {console.log("could not find form! has a problem been rendered?"); return;}
-  problemForm.querySelectorAll('.btn-primary').forEach( button => {
+  // Bind to any submit controls, not just Bootstrap-styled ones.
+  problemForm.querySelectorAll('input[type="submit"], button[type="submit"]').forEach(button => {
     button.addEventListener('click', () => {
+      problemForm.querySelectorAll('.btn-clicked').forEach(b => b.classList.remove('btn-clicked'));
       button.classList.add("btn-clicked");
       console.log("clicked: ", button);
     })
@@ -203,7 +205,16 @@ function insertListener() {
   formData.set("sourceFilePath", document.getElementById('sourceFilePath').value);
   formData.set("problemSeed", document.getElementById('problemSeed').value);
     formData.set("outputFormat", outputFormat);
-    formData.set(clickedButton.name, clickedButton.value);
+    if (!clickedButton) {
+      console.warn("submit aborted: no .btn-clicked found on problem form");
+      clickedButton = problemForm.querySelector('input[type="submit"], button[type="submit"]');
+    }
+    if (clickedButton) {
+      formData.set(clickedButton.name, clickedButton.value);
+    } else {
+      console.warn("submit aborted: no submit control found on problem form");
+      return;
+    }
 
 //  // Version tracking steps to replace window.btoa with code supporting Unicode text
 //  encoder = new TextEncoder();

@@ -279,6 +279,9 @@ sub formatRenderedProblem {
 		}
 	}
 
+	# Always include renderer PG button overrides served from /pg-modern.css
+	$extra_css_files .= "<link rel=\"stylesheet\" type=\"text/css\" href=\"/pg-modern.css\" />\n";
+
 	my $STRING_Preview = $mt->maketext("Preview My Answers");
 	my $STRING_ShowCorrect = $mt->maketext("Show correct answers");
 	my $STRING_Submit = $mt->maketext("Submit Answers");

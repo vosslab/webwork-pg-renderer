@@ -147,6 +147,7 @@ Render PG problems programmatically using JSON POST requests.
 - Lint scope: host lint checks RenderApp core + safe controllers/models + TikZ shim; full PG/WeBWorK lint should be run inside the container via `podman exec pg-test ./script/lint-full.sh`
 - Container lint/full-stack: `script/lint-full.sh` sets `PERL5LIB` for PG/WeBWorK trees and is intended to run inside the container (`podman exec pg-test ./script/lint-full.sh || true`)
 - Docker deps split: apt for OS/XS-heavy Perl libs; `cpanfile`/`cpanm` for app-level Perl deps (installed into `/usr/app/local`) per Dockerfile comments
+- UI polish: `public/navbar.css` themes the top bar; `public/pg-modern.css` restyles PG iframe buttons (just CSS, PG logic untouched)
 
 ### Health Check
 `GET /health` returns JSON including mode, status, and detected jQuery/UI versions. A `tikzimage` flag verifies `TikZImage.pm` is loadable inside the container.

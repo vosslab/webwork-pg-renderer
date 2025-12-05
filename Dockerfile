@@ -87,6 +87,8 @@ RUN npm install
 
 WORKDIR /usr/app/lib/PG/htdocs
 COPY lib/PG/htdocs/package*.json /usr/app/lib/PG/htdocs/
+COPY lib/PG/htdocs/generate-assets.js lib/PG/htdocs/third-party-assets.json /usr/app/lib/PG/htdocs/
+COPY lib/PG/htdocs/js /usr/app/lib/PG/htdocs/js
 RUN npm install
 
 # Now copy the full repo (changes here won't invalidate cpanm/npm layers)

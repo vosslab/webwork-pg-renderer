@@ -7,7 +7,7 @@
         "url": "https://github.com/openwebwork/pg"
     },
     "scripts": {
-        "generate-assets": "node generate-assets",
+        "generate-assets": "node generate-assets.js",
         "prepare": "npm run generate-assets"
     },
     "dependencies": {

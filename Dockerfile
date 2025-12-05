@@ -8,6 +8,7 @@ ENV TZ=America/Chicago
 # Ensure Perl finds PG, WeBWorK, and app libs.
 ENV PERL5LIB=/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib:$PERL5LIB
 
+# OS/system-level deps and XS-heavy Perl modules (prefer apt for these)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --no-install-suggests \
     apt-utils \
@@ -33,6 +34,7 @@ RUN apt-get update \
     && apt-get clean \
     && rm -fr /var/lib/apt/lists/* /tmp/*
 
+# Additional Perl libs available via apt (distro-managed versions are fine here)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --no-install-suggests \
     libgd-perl \
@@ -74,7 +76,7 @@ RUN apt-get update \
 WORKDIR /usr/app
 COPY cpanfile /usr/app/
 
-# Install Perl dependencies from cpanfile into /usr/app/local (cacheable layer)
+# App-level Perl deps (pin via cpanfile) go into /usr/app/local
 RUN cpanm --notest --installdeps -L /usr/app/local . \
     && rm -rf /root/.cpanm /tmp/*
 

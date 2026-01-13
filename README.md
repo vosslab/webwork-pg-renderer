@@ -4,6 +4,8 @@ A standalone PG problem renderer and editor derived from [WeBWorK](https://githu
 
 **Scope:** Only render/test PG/PGML locally. It is not a full WeBWorK deployment; deployment/k8s artifacts are legacy/optional.
 
+Instructor guide: [docs/USAGE.md](docs/USAGE.md) covers the local testing workflow and troubleshooting basics.
+
 ---
 
 ## Features

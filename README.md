@@ -6,7 +6,7 @@ A standalone PG problem renderer and editor derived from [WeBWorK](https://githu
 
 ---
 
-## 🔧 Features
+## Features
 
 - Web-based editor with live PG rendering
 - API for automated problem rendering
@@ -16,7 +16,7 @@ A standalone PG problem renderer and editor derived from [WeBWorK](https://githu
 
 ---
 
-## 🚀 Quick Start (with Podman)
+## Quick Start (with Podman)
 
 ### 1. Clone the repo
 ```bash
@@ -61,7 +61,7 @@ podman image prune
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```bash
 webwork-pg-renderer/
@@ -80,19 +80,31 @@ webwork-pg-renderer/
 
 ---
 
-## 🧪 Editor UI
+## How rendering works
+
+- Client posts to `/render-api` with `sourceFilePath` or base64 `problemSource`, plus seed and
+  render options.
+- The app validates inputs, builds a `RenderApp::Model::Problem`, invokes `WeBWorK::PG`, and
+  formats HTML plus metadata.
+- Response JSON includes `renderedHTML`, answer data, flags, and diagnostic warnings.
+- The UI is optional; scripts can call the same API.
+
+---
+
+## Editor UI
 
 - Load a `.pg` problem from `private/yourfile.pg`
 - Set a problem seed (e.g. `1234`)
 - Select output format (see below)
 - Edit and render in real-time
 - Save edits back to the local file
+- `private/` maps to `local_pg_files/` on disk
 
 ![editor-ui](https://user-images.githubusercontent.com/3385756/129100124-72270558-376d-4265-afe2-73b5c9a829af.png)
 
 ---
 
-## 🔌 Render API
+## Render API
 
 ### `POST /render-api`
 
@@ -123,7 +135,7 @@ Render PG problems programmatically using JSON POST requests.
 
 ---
 
-## 📦 Development Notes
+## Development Notes
 
 - PG version: **2.17**
 - CodeMirror version: **5.65.19**
@@ -136,10 +148,12 @@ Render PG problems programmatically using JSON POST requests.
 - Perl search path (inside the container): `/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib` (set via `PERL5LIB` in `Dockerfile` and `docker-compose.yml`)
 - TikZ health check: `lib/PG/TikZImage.pm` is a minimal shim to satisfy `require TikZImage;` for `/health`
 - Submit reliability: the client now binds clicks to all submit controls inside the rendered iframe (not just Bootstrap-styled buttons) so `submitAnswers` posts consistently
-- Run `perl script/smoke.pl` (server running) for `/health` + render checks without curl version quirks; `script/smoke.sh` is kept for curl users
-- See `ARCHITECTURE.md` for a walkthrough of the app flow and components
+- Run `perl script/pg-smoke.pl` (server running) for a render canary; `script/smoke.sh`
+  is kept for curl users
+- See [docs/CODE_ARCHITECTURE.md](docs/CODE_ARCHITECTURE.md) for a walkthrough of the
+  app flow and components
 - Local lint/sanity: `script/lint.sh` runs `perl -c` across modules/scripts and shellcheck (if available) against `run.sh` and `script/smoke.sh`
-- Tests: `prove -lr t` (includes `t/health.t`), `perl script/pg-smoke.pl` for a quick render canary
+- Tests: `tests/run_pyflakes.sh` for Python linting when Python scripts are added
 - Host note: `script/lint.sh` expects `Future::AsyncAwait 0.52+`; install via cpanm/apt/brew or run the lint inside the container (`podman exec pg-test ./script/lint.sh`)
 - Dependencies: see `cpanfile` for CPAN module requirements; install locally with `cpanm --installdeps .` (e.g., `PERL_CPANM_HOME=$PWD/.cpanm PERL_CPANM_OPT='-L local' cpanm --installdeps .`)
   - `script/lint.sh` will attempt `cpanm --installdeps .` automatically if `cpanm` is available on the host.
@@ -154,7 +168,7 @@ Render PG problems programmatically using JSON POST requests.
 
 ---
 
-## 📝 License
+## License
 
 [MIT License](LICENSE.md)  
 Original source: [drdrew42/renderer](https://github.com/drdrew42/renderer) and [openwebwork/WeBWorK2](https://github.com/openwebwork/WeBWorK2)

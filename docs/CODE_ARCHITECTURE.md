@@ -1,36 +1,57 @@
-# Architecture Overview
+# Code architecture
 
-This repo’s sole purpose is to locally render and test WeBWorK PG/PGML problems. It is not a full WeBWorK stack; deployment artifacts (e.g., k8 manifests) are optional and not maintained as first-class targets.
+## Overview
+- This repo builds a Mojolicious (Perl) web app that renders PG/PGML problems via a JSON API and
+  optional UI.
+- The primary workflow accepts a render request, loads PG source from a file or inline content,
+  invokes the vendored PG engine, and returns formatted HTML plus metadata.
 
-## High-Level Layout
-- **Entry & Routing**: `script/render_app` boots Mojolicious. `lib/RenderApp.pm` wires routes, helpers, env defaults, and passes requests to controllers.
-- **App Logic**: `lib/RenderApp/Controller/*` handles endpoints. `RenderProblem` orchestrates rendering; `IO` covers file reads/writes/uploads/search; `FormatRenderedProblem` shapes HTML output per template.
-- **Domain Model**: `lib/RenderApp/Model/Problem` abstracts a PG problem (paths, contents, seed, render/save).
-- **PG Engine**: `lib/PG` and `lib/WeBWorK` bundle the math rendering engine/macros (including TikZ support). Treat as vendor code unless you know PG internals.
-- **UI**: `templates/` (navbar/layout) + `public/` (JS/CSS assets, CodeMirror). The editor posts to `/render-api`, `/render-api/can`, `/render-api/tap`, etc.
-- **Runtime Assets**: `local_pg_files/` is the writable mount for user problems (exposed as `private/` in the UI/API); `logs/` holds render logs; `render_app.conf.dist` is the base config (copy to `render_app.conf`).
-- **Health/Observability**: `/health` returns JSON (mode, status, jQuery/UI versions, TikZImage availability) and is the quickest way to confirm dependencies are loaded inside the container.
+## Major components
+- `script/render_app` boots Mojolicious and starts the `RenderApp` application.
+- `lib/RenderApp.pm` initializes environment defaults, loads config, registers routes, and exposes
+  `/health` plus `/render-api`.
+- `lib/RenderApp/Controller/Render.pm` parses request parameters and JWTs, optionally fetches remote
+  source, and coordinates rendering.
+- `lib/RenderApp/Controller/RenderProblem.pm` runs the PG render pipeline via `WeBWorK::PG` and
+  assembles the response payload.
+- `lib/RenderApp/Controller/FormatRenderedProblem.pm` formats PG output into HTML and metadata.
+- `lib/RenderApp/Controller/IO.pm` implements read/write, catalog, search, and upload endpoints for
+  `private/` and OPL paths.
+- `lib/RenderApp/Model/Problem.pm` encapsulates problem paths, source, seed, and render/save logic
+  with path validation.
+- `lib/PG/` and `lib/WeBWorK/` provide the vendored PG engine, macros, and static assets.
+- `templates/` and `public/` hold the UI templates and static JS/CSS assets.
+- `render_app.conf.dist` supplies default configuration loaded by Mojolicious (override with
+  `render_app.conf`).
 
-## Request Flow (Render API)
-1) Client/Editor `POST /render-api` with `sourceFilePath` or base64 `problemSource`, `problemSeed`, `outputFormat`, flags. Default output format is `classic`; seed defaults to a random int if omitted.
-2) `RenderApp::Controller::RenderProblem::process_pg_file` resolves the source, merges defaults, and invokes `process_problem`.
-3) `standaloneRenderer` (inside `RenderProblem`) builds a fake course/user env, sets display options, and calls `WeBWorK::PG->new` with the PG engine.
-4) `FormatRenderedProblem` maps the PG result into an HTML template (`WebworkClient/*_format.pl`) and returns JSON (rendered HTML + metadata).
+## Data flow
+1. A client posts to `/render-api` with `sourceFilePath` or `problemSource` plus render options.
+2. `RenderApp::Controller::Render` validates inputs, merges JWT claims, and instantiates
+   `RenderApp::Model::Problem`.
+3. `RenderApp::Model::Problem->render` calls
+   `RenderApp::Controller::RenderProblem::process_pg_file`, which constructs a course environment
+   and invokes `WeBWorK::PG`.
+4. `RenderApp::Controller::FormatRenderedProblem` turns the PG result into HTML and response
+   metadata.
+5. The controller returns JSON that includes `renderedHTML`, answer data, flags, and diagnostics.
 
-## File IO Flows
-- **Load**: `/render-api/tap` -> `IO::raw` -> `Model::Problem->load` from `read_path` rooted in `private/` (`local_pg_files/` on disk).
-- **Save**: `/render-api/can` -> `IO::writer` -> `Model::Problem->save`; writes are constrained to `private/` paths.
-- **Catalog/Search**: `/render-api/cat` and `/render-api/find` spawn subprocess traversals rooted in `private/` or OPL paths with depth guards.
+## Testing and verification
+- `script/pg-smoke.pl` posts a render request and checks for expected HTML content.
+- `script/smoke.sh` performs `/health` and `/render-api` smoke checks with curl.
+- `script/lint.sh` runs host-side Perl syntax checks; `script/lint-full.sh` targets the full
+  PG/WeBWorK tree inside a container.
+- `tests/run_pyflakes.sh` is available for Python linting when Python scripts are added.
 
-## Configuration & Defaults
-- Env vars set in `RenderApp.pm` (`RENDER_ROOT`, `WEBWORK_ROOT`, `OPL_DIRECTORY`, `MOJO_CONFIG`). Copy `render_app.conf.dist` to override (CORS, JWT secrets, baseURL/formURL, cache headers).
-- Service defaults: `MOJO_MODE=development`, port `3000`, `outputFormat=classic`, random seed if missing.
-- Non-goals: LMS integration, grading pipelines, or production deployment; k8 manifests are legacy/optional. Bundled assets (jQuery/UI, CodeMirror) are local to keep the renderer offline-friendly.
-- Perl load path: `PERL5LIB` must include `/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib` (set in both `Dockerfile` and `docker-compose.yml`) so `TikZImage.pm` and other PG shims load for `/health`.
-- Client UI: navbar JS now binds submit clicks to any submit control rendered inside the iframe (not only `.btn-primary`) to ensure `submitAnswers` posts reliably across formats.
-- Visual styling: `public/navbar.css` handles the top toolbar; PG iframe buttons are restyled via `public/pg-modern.css` (added through `$extra_css_files`).
+## Extension points
+- Add new HTTP endpoints in `lib/RenderApp.pm` and implement handlers under
+  `lib/RenderApp/Controller/`.
+- Extend render output shaping in `lib/RenderApp/Controller/RenderProblem.pm` and
+  `lib/RenderApp/Controller/FormatRenderedProblem.pm`.
+- Add UI views under `templates/` and static assets under `public/`.
+- Add helper scripts under `script/` and test utilities under `tests/`.
+- Prefer wrapper code over edits in `lib/PG/` and `lib/WeBWorK/` unless engine changes are required.
 
-## Operational Notes
-- For dev without containers: `MOJO_MODE=development morbo -l http://*:3000 script/render_app`.
-- Smoke: `perl script/smoke.pl` (uses `Mojo::UserAgent`); `script/smoke.sh` is available if you prefer curl.
-- Vendor PG/WeBWorK code is heavy; prefer wrapping rather than editing unless you need engine changes.
+## Known gaps
+- Verify whether `script/smoke.pl` should exist; it is referenced in `script/lint.sh` and docs.
+- Verify the README reference to `ARCHITECTURE.md` and update it to point at
+  `docs/CODE_ARCHITECTURE.md` if needed.

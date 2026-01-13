@@ -25,12 +25,11 @@ RUN apt-get update \
     libssl-dev \
     zlib1g-dev \
     imagemagick \
-    ca-certificates \
-    texlive-pictures \
-    texlive-latex-base \
-    texlive-latex-recommended \
     build-essential \
-    cpanminus \
+    ca-certificates \
+    # texlive-latex-recommended pulls in texlive-latex-base as a dependency
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
     && apt-get clean \
     && rm -fr /var/lib/apt/lists/* /tmp/*
 

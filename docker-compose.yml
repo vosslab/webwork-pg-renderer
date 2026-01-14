@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  pg-renderer:
+    image: pg-renderer
+    container_name: pg-test
+    ports:
+      - "3000:3000"
+    environment:
+      - PERL5LIB=/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib
+      - MOJO_MODE=development
+    volumes:
+      - ${PWD}/local_pg_files:/usr/app/private:rw
+    command: hypnotoad -f ./script/render_app

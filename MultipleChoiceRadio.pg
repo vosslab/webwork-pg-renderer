@@ -1,0 +1,20 @@
+DOCUMENT();
+
+loadMacros('PGstandard.pl', 'PGML.pl', 'parserRadioButtons.pl', 'PGcourse.pl');
+
+$radio1 = RadioButtons(
+    [ [ 'Red', 'Blue', 'Green' ], 'None of these' ],
+    'Blue',    # correct answer
+);
+
+BEGIN_PGML
+My favorite color is
+
+[_]{$radio1}
+END_PGML
+
+BEGIN_PGML_SOLUTION
+The correct answer to the first is [$radio1->correct_ans].
+END_PGML_SOLUTION
+
+ENDDOCUMENT();

@@ -1,4 +1,4 @@
 [submodule "lib/PG"]
-	path = lib/PG
-	url = https://github.com/openwebwork/pg.git
-	branch = main
+\tpath = lib/PG
+\turl = https://github.com/openwebwork/pg.git
+\tbranch = main

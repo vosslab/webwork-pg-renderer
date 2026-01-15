@@ -37,6 +37,10 @@ function updateBrowser(formId, updateBackNav) {
         return;
     }
 
+    if (target.startsWith('/')) {
+        target = target.replace(/^\/+/, '');
+    }
+
     var params = {
         body: formData,
         method: 'post'

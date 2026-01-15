@@ -14,15 +14,33 @@ const templateItems =
 	document
 		.getElementById("template-select-dropdown")
 		?.querySelectorAll(".dropdown-item") ?? [];
+
+function selectTemplateItem(element) {
+	templateItems.forEach((item) => {
+		item.classList.remove("selected");
+	});
+	element.classList.add("selected");
+	templateSelect.innerHTML = element.textContent + ' <i class="fa fa-caret-down"></i>';
+}
+
+function ensureDefaults() {
+	const defaultTemplate =
+		document.getElementById("default") || templateItems[0];
+	if (defaultTemplate && !document.querySelector(".dropdown-item.selected")) {
+		selectTemplateItem(defaultTemplate);
+	}
+	const seedInput = document.getElementById("problemSeed");
+	if (seedInput && (!seedInput.value || seedInput.value.trim() === "")) {
+		const randSeed = 1 + Math.floor(Math.random() * 999999);
+		seedInput.value = randSeed;
+		seedInput.placeholder = randSeed;
+	}
+}
+
 for (const element of templateItems) {
 	element.addEventListener("click", (e) => {
 		e.preventDefault();
-		templateItems.forEach((item) => {
-			item.classList.remove("selected");
-		});
-		element.classList.add("selected");
-		templateSelect.innerHTML =
-			element.textContent + ' <i class="fa fa-caret-down"></i>';
+		selectTemplateItem(element);
 	});
 }
 
@@ -39,6 +57,8 @@ $(function () {
 	$("#sourceFilePath").css("maxWidth", remaining);
 });
 
+document.addEventListener("DOMContentLoaded", ensureDefaults);
+
 let loadbutton = document.getElementById("load-problem");
 let savebutton = document.getElementById("save-problem");
 let renderbutton = document.getElementById("render-button");
@@ -52,8 +72,28 @@ problemiframe.addEventListener("load", () => {
 
 
 const editorContainer = document.querySelector('.code-mirror-editor');
+const defaultProblemSource = `DOCUMENT();
+
+loadMacros('PGstandard.pl', 'PGML.pl', 'parserRadioButtons.pl', 'PGcourse.pl');
+
+$radio1 = RadioButtons(
+    [ [ 'Red', 'Blue', 'Green' ], 'None of these' ],
+    'Blue',    # correct answer
+);
+
+BEGIN_PGML
+My favorite color is
+
+[_]{$radio1}
+END_PGML
+
+BEGIN_PGML_SOLUTION
+The correct answer to the first is [$radio1->correct_ans].
+END_PGML_SOLUTION
+
+ENDDOCUMENT();`;
 const cm = new PGCodeMirrorEditor.View(editorContainer, {
-	source: '# Load a problem, then click on "render contents."',
+	source: defaultProblemSource,
 	language: 'pg',
 	theme: 'Cobalt'
 });
@@ -140,6 +180,7 @@ renderbutton.addEventListener("click", (event) => {
 	document.getElementById("rendered-problem").srcdoc = "Loading...";
 	const renderurl = "render-api";
 
+	ensureDefaults();
 	const selectedformat = document.querySelector(".dropdown-item.selected");
 	let outputFormat;
 	if (selectedformat === null) {
@@ -231,6 +272,7 @@ function insertListener() {
 		const selectedformat = document.querySelector(
 			".dropdown-item.selected"
 		);
+		ensureDefaults();
 		let outputFormat;
 		if (selectedformat === null) {
 			alert("No output format selected. Defaulting to 'classic' format.");

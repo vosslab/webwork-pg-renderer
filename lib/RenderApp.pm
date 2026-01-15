@@ -175,6 +175,12 @@ sub startup {
 			my $json = eval { Mojo::JSON::decode_json($content) };
 			return ($json && $json->{version}) ? $json->{version} : '';
 		};
+		my $get_node_version = sub {
+			my $version = qx(node -v 2>/dev/null);
+			chomp $version;
+			$version =~ s/^v//;
+			return $version || '';
+		};
 
 		my $pg_version = $get_pg_version->();
 		my $jquery_version =
@@ -187,6 +193,7 @@ sub startup {
 			$get_pkg_version->($ENV{RENDER_ROOT} . '/public/node_modules/@codemirror/state/package.json');
 		$codemirror_version ||= $get_pkg_version->($ENV{RENDER_ROOT} . '/public/node_modules/@codemirror/view/package.json');
 		$codemirror_version ||= $get_pkg_version->($ENV{RENDER_ROOT} . '/public/node_modules/codemirror/package.json');
+		my $node_version = $get_node_version->();
 
 		$c->render(
 			json => {
@@ -197,6 +204,7 @@ sub startup {
 					codemirror => $codemirror_version,
 					jquery     => $jquery_version,
 					jquery_ui  => $jquery_ui_version,
+					node       => $node_version,
 				},
 			},
 			status => 200

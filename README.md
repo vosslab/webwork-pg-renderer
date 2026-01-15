@@ -100,6 +100,8 @@ Can be accessed by POST to `{SITE_HOST}{baseURL}{formURL}`.
 
 By default, `localhost:3000/render-api`.
 
+Details and examples are in [docs/RENDERER_API_USAGE.md](docs/RENDERER_API_USAGE.md).
+
 ### **REQUIRED PARAMETERS**
 
 The bare minimum of parameters that must be included are:

@@ -1,0 +1,4509 @@
+# Migration Plan (Expanded, Tightened, Pause Point)
+
+Date: 2026-01-14
+
+## Objective
+Rebase the editable target repo on openwebwork/renderer `main` and selectively port non-`lib/` changes from the vosslab master working tree into the target, using a filesystem-based comparison.
+
+`lib/` stays untouched except that the target superproject must represent `lib/PG` as a submodule. That conversion is performed **only** by the user-run git script, not by Codex.
+
+## Actors and Repos
+
+Actors
+- **Codex AI agent**
+  - Can read/write regular files.
+  - **Cannot run git commands** in this phase.
+  - Produces file edits plus a user-run git script.
+- **User (Dr. Voss)**
+  - Runs the generated script locally with real permissions.
+  - Does all git operations, commits, and optional pushes.
+
+Repos and Paths
+- **Target (editable working tree, base = openwebwork/main):**
+  `/Users/vosslab/nsh/TESTING/webwork-pg-renderer-local_branch/`
+- **Reference (read-only view of vosslab master):**
+  `/Users/vosslab/nsh/TESTING/webwork-pg-renderer-master-link/`
+- **Reference (upstream clone, read-only):**
+  `/Users/vosslab/nsh/TESTING/openwebwork-renderer/`
+
+## Constraints
+1. **No edits to lib/** contents.
+   Treat `lib/` as read-only, except for the `lib/PG` submodule representation handled by git in the user script.
+2. **Filesystem-based porting only.**
+   Port decisions are made by comparing actual files in the two working trees, not commit history.
+3. **No deletion of target-only files by default.**
+   If the target contains extra files not in master-link, keep them unless explicitly marked for removal.
+4. **Workflow files are special.**
+   - Anything under `.github/workflows/` must be isolated.
+   - The user script commits those only if `PUSH_WORKFLOWS=1`.
+   - Otherwise they remain uncommitted and do not block other commits.
+5. **Codex performs no git operations.**
+   All git operations are delegated to `codex_git_plan.sh` run by the User.
+6. **Branch hygiene.**
+   - The user script must never modify `master`.
+   - The user script creates a new working branch from `openwebwork/main`.
+
+## Required Structure: lib/PG as Submodule
+
+Desired state
+- In the target repo, `lib/PG` must be a gitlink (submodule pointer), not a tracked directory.
+
+Upstream metadata to follow
+- `.gitmodules` entry (from `openwebwork/main`):
+  - `path = lib/PG`
+  - `url = https://github.com/openwebwork/pg.git`
+  - `branch = main`
+
+Implications
+- If `webwork-pg-renderer-master-link` contains a real directory at `lib/PG`, **do not copy it**.
+- The user script will:
+  - remove any tracked/physical `lib/PG` directory if present in the target
+  - add `lib/PG` as a submodule using upstream metadata
+  - ensure the gitlink commit pointer matches upstream expectations (or at minimum is consistent and pinned)
+- **Submodule init is optional:** if the environment cannot fetch, leaving it uninitialized is acceptable as long as `.gitmodules` and gitlink are correct.
+
+## Known Git Issues and Guardrails
+1. **Codex git restriction**
+   - All previous attempts to manipulate branches using Codex are irrelevant for this plan.
+   - This plan assumes a clean new run driven by the user script.
+2. **Index correctness**
+   - Deletions must use `git rm` so the index and working tree stay consistent.
+   - The script enforces this by doing `git rm` when needed.
+3. **Workflow permission landmine**
+   - Pushing branches that include workflow updates can be rejected by GitHub if token scope lacks workflow.
+   - Therefore:
+     - default `DO_PUSH=0`
+     - default `PUSH_WORKFLOWS=0`
+     - workflow changes are optionally committed only when explicitly enabled
+4. **Non-interactive execution**
+   - The script must not prompt.
+   - The script must be safe to run multiple times (idempotent where practical).
+
+## Tightened Manifest Rules (Critical)
+
+**Always exclude these paths from manifests and copying:**
+- `.git/**`
+- `lib/**`
+- `.cpanm/**`, `local/**`, `logs/**`, `node_modules/**`
+- `**/.DS_Store`, `**/*.swp`, `**/*.swo`, `**/*.tmp`, `**/*.bak`
+
+**Generated / cache-like artifacts:**
+- Skip minified bundles or build outputs unless they are clearly committed source files in master-link.
+- If a file appears auto-generated in master-link but does not exist in upstream, treat it as **skipped** unless explicitly listed for inclusion.
+
+## Directory-Level Port Policy (Selective)
+- `docs/**`: copy wholesale from master-link (project-specific docs are intentional).
+- `script/**`, `conf/**`, `templates/**`, `public/**`: copy or update from master-link **only if the file is in the manifest and not excluded**.
+- `.github/workflows/**`: copy allowed, but mark as workflow-gated for optional commit.
+
+## Planned Steps (Codex: file work, User: git work)
+
+### Phase 1: Manifest generation (Codex)
+Codex generates two file manifests from the filesystem for comparison.
+
+Manifest format: sorted list of relative paths, one per line.
+
+Codex produces:
+- `MANIFEST.master.txt`
+- `MANIFEST.target.txt`
+
+Each generated from the filesystem view of:
+- master-link root
+- target root
+
+### Phase 2: Classification (Codex)
+Using the manifests, Codex classifies files into three buckets:
+1. **Master-only** (exists in master-link, missing in target)
+   - Action: copy into target.
+2. **Both** (exists in both)
+   - Action: compare contents.
+   - If identical: do nothing.
+   - If different: copy master-link version into target, unless specifically excluded.
+3. **Target-only** (exists in target, missing in master-link)
+   - Action: keep by default.
+   - Exception: if file is clearly a known unwanted artifact and explicitly listed in a removal allowlist.
+
+Codex records classification results in this file.
+
+### Phase 3: Copy / update execution (Codex)
+Codex applies file changes inside the target repo.
+
+Rules:
+- Treat each file port as a discrete unit of work.
+- Prefer direct copying over manual edits unless merging is required.
+- Avoid refactors. Minimal mechanical porting.
+- Do not touch `lib/`.
+
+Workflow isolation:
+- If a file is under `.github/workflows/`, Codex may still copy it into the target, but it must be called out as "workflow gated" so the user script can optionally commit it.
+
+### Phase 4: Change log (Codex)
+Codex writes `PORT_NOTES.md` in the target repo root.
+
+`PORT_NOTES.md` must include:
+- Summary counts:
+  - copied new files
+  - updated existing files
+  - skipped files
+  - workflow-gated files
+- Lists:
+  - "Copied from master-link"
+  - "Updated from master-link"
+  - "Skipped and why"
+  - "Workflow gated"
+  - Any known risk items (examples: build system changes, docker scripts, k8 manifests)
+
+### Phase 5: Git plan script generation (Codex)
+Codex writes `codex_git_plan.sh` to the target repo root.
+
+Script responsibilities:
+1. Sanity and fetch
+   - confirm in a git repo
+   - fetch origin and openwebwork
+2. Branch creation
+   - if on master or detached, create a new branch from `openwebwork/main`
+   - otherwise keep current branch (User can choose)
+3. Submodule conversion
+   - enforce `lib/PG` is a submodule, not a directory
+   - use `.gitmodules` metadata (path/url/branch)
+   - commit this as one commit
+4. Commit one file per commit
+   - iterate over `git status --porcelain` changes excluding `.github/workflows/*`
+   - stage and commit each file individually with consistent messages
+5. Workflow gating
+   - if workflow changes exist:
+     - commit them only when `PUSH_WORKFLOWS=1`
+     - otherwise leave them uncommitted and print a warning
+6. Summary
+   - print status, log, and name-status diff against upstream base
+7. Optional push
+   - only push when `DO_PUSH=1`
+   - refuse to push if workflow changes exist but are not committed and `PUSH_WORKFLOWS=0`
+
+## Operational Notes
+- This plan intentionally ignores `sync/upstream-main` because its history is contaminated by conflicts and diverged commits.
+- The target repo becomes the "clean room" where upstream is the base truth and master-link is a source of selected patches.
+- The reason for filesystem-based comparison is to avoid being trapped by confusing commit graphs and legacy merge junk.
+
+## Pause Point Definition
+At this pause point:
+- No git operations are executed by Codex.
+- The next action is for Codex to start Phase 1 (manifest creation) and proceed through Phase 5 (script creation), with all actual committing performed later by the User.
+
+## Next Execution Checklist
+When resuming:
+1. Generate `MANIFEST.master.txt` and `MANIFEST.target.txt` excluding `lib/` and `.git/` plus the tightened excludes above.
+2. Produce classification results.
+3. Apply file copies/updates into the target.
+4. Write `PORT_NOTES.md` (this file) with real counts and lists.
+5. Write `codex_git_plan.sh`.
+
+
+
+## Port Results (Run 1)
+
+- Copied new files: 2
+- Updated existing files: 0
+- Skipped (excluded by rules): 3879
+- Workflow-gated files: 0
+
+### Copied from master-link
+- file_list.txt
+- local_pg_files/test.pg
+
+### Updated from master-link
+- (none)
+
+### Skipped and why (master-link exclusions/skips)
+- .DS_Store — excluded by glob: .DS_Store
+- .cpanm/latest-build — excluded root dir: .cpanm/
+- .cpanm/build.log — excluded root dir: .cpanm/
+- .cpanm/sources/http%www.cpan.org/02packages.details.txt — excluded root dir: .cpanm/
+- .cpanm/sources/http%www.cpan.org/02packages.details.txt.gz — excluded root dir: .cpanm/
+- local/man/man3/File::ShareDir::Install.3 — excluded root dir: local/
+- local/man/man3/YAML::XS::LibYAML.3 — excluded root dir: local/
+- local/bin/dbiprof — excluded root dir: local/
+- local/bin/package-stash-conflicts — excluded root dir: local/
+- local/bin/bdf2gdfont.pl — excluded root dir: local/
+- local/bin/json_xs — excluded root dir: local/
+- local/bin/dbilogstrip — excluded root dir: local/
+- local/bin/config_data — excluded root dir: local/
+- local/bin/morbo — excluded root dir: local/
+- local/bin/dbiproxy — excluded root dir: local/
+- local/bin/xgettext.pl — excluded root dir: local/
+- local/bin/shell-quote — excluded root dir: local/
+- local/bin/hypnotoad — excluded root dir: local/
+- local/bin/mojo — excluded root dir: local/
+- local/lib/perl5/Mojo.pm — excluded root dir: local/
+- local/lib/perl5/Fh.pm — excluded root dir: local/
+- local/lib/perl5/CGI.pm — excluded root dir: local/
+- local/lib/perl5/oo.pm — excluded root dir: local/
+- local/lib/perl5/CGI.pod — excluded root dir: local/
+- local/lib/perl5/ojo.pm — excluded root dir: local/
+- local/lib/perl5/TimeDate.pm — excluded root dir: local/
+- local/lib/perl5/Moo.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious.pm — excluded root dir: local/
+- local/lib/perl5/Specio.pm — excluded root dir: local/
+- local/lib/perl5/URI.pm — excluded root dir: local/
+- local/lib/perl5/Future.pm — excluded root dir: local/
+- local/lib/perl5/JSON.pm — excluded root dir: local/
+- local/lib/perl5/CPAN/Meta/Check.pm — excluded root dir: local/
+- local/lib/perl5/Devel/StackTrace.pm — excluded root dir: local/
+- local/lib/perl5/Devel/InnerPackage.pm — excluded root dir: local/
+- local/lib/perl5/Devel/StackTrace/Frame.pm — excluded root dir: local/
+- local/lib/perl5/Devel/TypeTiny/Perl58Compat.pm — excluded root dir: local/
+- local/lib/perl5/Capture/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/LWP/media.types — excluded root dir: local/
+- local/lib/perl5/LWP/MediaTypes.pm — excluded root dir: local/
+- local/lib/perl5/Role/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Role/Tiny/With.pm — excluded root dir: local/
+- local/lib/perl5/Types/Serialiser.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard.pm — excluded root dir: local/
+- local/lib/perl5/Types/Common.pm — excluded root dir: local/
+- local/lib/perl5/Types/TypeTiny.pm — excluded root dir: local/
+- local/lib/perl5/Types/Serialiser/Error.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/Tuple.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/ScalarRef.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/CycleTuple.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/StrMatch.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/Map.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/HashRef.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/Dict.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/Tied.pm — excluded root dir: local/
+- local/lib/perl5/Types/Standard/ArrayRef.pm — excluded root dir: local/
+- local/lib/perl5/Types/Common/Numeric.pm — excluded root dir: local/
+- local/lib/perl5/Types/Common/String.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Lexicon.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Lexicon/Gettext.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Lexicon/Msgcat.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Lexicon/Auto.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Lexicon/Tie.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Run.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/PPI.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/TT2.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/Generic.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/TextTemplate.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/Haml.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/Perl.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/FormFu.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/YAML.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/Mason.pm — excluded root dir: local/
+- local/lib/perl5/Locale/Maketext/Extract/Plugin/Base.pm — excluded root dir: local/
+- local/lib/perl5/Test/Needs.pm — excluded root dir: local/
+- local/lib/perl5/Test/Requires.pm — excluded root dir: local/
+- local/lib/perl5/Test/Fatal.pm — excluded root dir: local/
+- local/lib/perl5/Test/Mojo.pm — excluded root dir: local/
+- local/lib/perl5/Test/Warnings.pm — excluded root dir: local/
+- local/lib/perl5/Test/Fork.pm — excluded root dir: local/
+- local/lib/perl5/Test/SharedFork.pm — excluded root dir: local/
+- local/lib/perl5/Test/Warn.pm — excluded root dir: local/
+- local/lib/perl5/Test/Pod.pm — excluded root dir: local/
+- local/lib/perl5/Test/File.pm — excluded root dir: local/
+- local/lib/perl5/Test/TypeTiny.pm — excluded root dir: local/
+- local/lib/perl5/Test/Specio.pm — excluded root dir: local/
+- local/lib/perl5/Test/NoWarnings.pm — excluded root dir: local/
+- local/lib/perl5/Test/Future.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/TempDirObject.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/Utils.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/Module.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/Dist.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/Object/Inc.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/Object/Module.pm — excluded root dir: local/
+- local/lib/perl5/Test/File/ShareDir/Object/Dist.pm — excluded root dir: local/
+- local/lib/perl5/Test/Without/Module.pm — excluded root dir: local/
+- local/lib/perl5/Test/SharedFork/Store.pm — excluded root dir: local/
+- local/lib/perl5/Test/SharedFork/Scalar.pm — excluded root dir: local/
+- local/lib/perl5/Test/SharedFork/Array.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/None.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ScalarRef.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ScalarRefOnly.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Methods.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/RegexpRefOnly.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ArrayElementsOnly.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Number.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/RegexpOnly.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ArrayEach.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Shallow.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/RegexpRef.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Boolean.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/All.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ListMethods.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Code.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Cache.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Ignore.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/RegexpVersion.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Regexp.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/RefType.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ArrayLength.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/HashEach.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Isa.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Obj.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Hash.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/MM.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Cmp.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Class.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Ref.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/HashElements.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Stack.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/RegexpMatches.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Set.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Array.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Any.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/NoTest.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/String.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Blessed.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/ArrayLengthOnly.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/HashKeys.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/HashKeysOnly.pm — excluded root dir: local/
+- local/lib/perl5/Test/Deep/Cache/Simple.pm — excluded root dir: local/
+- local/lib/perl5/Test/NoWarnings/Warning.pm — excluded root dir: local/
+- local/lib/perl5/Test/Future/Deferred.pm — excluded root dir: local/
+- local/lib/perl5/Canary/Stability.pm — excluded root dir: local/
+- local/lib/perl5/File/Which.pm — excluded root dir: local/
+- local/lib/perl5/File/ShareDir.pm — excluded root dir: local/
+- local/lib/perl5/File/ShareDir/Install.pm — excluded root dir: local/
+- local/lib/perl5/File/Copy/Recursive.pm — excluded root dir: local/
+- local/lib/perl5/Dist/CheckConflicts.pm — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/xog.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MP.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bs-Cyrl-BA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/asa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-JM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lo-LA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/da-DK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ia.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-BI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vec-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hy.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-TK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-FJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/af-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shn-TH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/skr-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/guz-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-DJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/luy.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/co-FR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ga-IE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-AR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gl-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaj.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bm-Nkoo-ML.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/aa-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Cyrl-AZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-PT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ee-TG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/be-BY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jbo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wo-SN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jbo-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha-Arab-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-NI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/eo-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/scn-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pap.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sat-Deva.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gsw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mfe-MU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-BQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/syr-SY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yo-BJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/it-VA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dua-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-VU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nd.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ku-TR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-FR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rm-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-GP.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hr-HR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sv-SE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-KM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dv-MV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/be-tarask.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-TO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-IM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-AS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ja.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-IQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sv-AX.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/os-GE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ky.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/trv-TW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/af-NA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-HU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bez.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ie.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dz.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hi-Latn-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/szl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-BR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hnj.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue-Hant-HK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/quc-GT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/qu-BO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Latn-BA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-ST.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cop-EG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kcg-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mua-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/frr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sg-CF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/raj.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ga-GB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bew-ID.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-DO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kam-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wal-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kde-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-CR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/el-GR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-KI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/he.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vec.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ug.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cgg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/khq-ML.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nr-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nqo-GN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hi-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mfe.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ps-AF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-WS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ka.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/la-VA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ks-Deva-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/seh-MZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ks-Deva.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ceb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/et-EE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-BL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-PM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/iu-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-IL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-SO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lb-LU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gez-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/twq-NE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ny.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/id.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pa-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pis.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-PR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-LI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ses.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sd-Deva.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tyv-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dyo-SN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-GQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-SV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dyo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rif-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fil.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rwk.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nb-SJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ur-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/khq.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/blt-VN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ken.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/blo-BJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Cyrl-RS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nn-NO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/agq-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/scn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lmo-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lij-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mzn-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pap-AW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/teo-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mt-MT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-TV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kok-Latn-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-DK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cic-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/eu-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-BF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-ZM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Deva.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz-Arab-AF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgn-AF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-PS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sc.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sdh-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru-MD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-OM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bn-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-RO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/he-IL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgc.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mua.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hi-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/la.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tig.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-Dsrt-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-FK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/my.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Cyrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue-Hant-MO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pap-CW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaa-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-TL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/moh-CA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ebu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-CO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jgo-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cad-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bal-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fur.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kk-KZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha-Arab-SD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/th-TH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jgo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/luy-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lrc-IQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vai-Vaii-LR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-MO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ce-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-LU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-BO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bas-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-Shaw-GB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pcm.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-RW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ne.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cy-GB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nus-SS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/teo-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/af.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lld-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kea-CV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pa-Guru.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/za.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fi-FI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-TN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-GQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mic.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-IL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-SS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-NE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dsb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-GN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ca-ES-valencia.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pcm-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fur-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ks-Arab-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-EA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gn-PY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/iu-CA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kpe.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ckb-IQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/an-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pl-PL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uk-UA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-MR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kk-Arab-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ln-CF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mn-Mong-MN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/st.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ti.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tt-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cch.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ccp-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ko-KP.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ko-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/byn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sw-CD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/chr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/el.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ses-ML.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/naq.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/am.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/xnr-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/is.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vun-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ccp.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ko.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mus-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/xog-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cho-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hsb-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-AE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-SL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tzm.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/et.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-LR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-BE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gaa-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yo-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/brx-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mi-NZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Cyrl-BA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kea.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sma-NO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-PE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ee-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ti-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ks-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaa-Cyrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-SN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hsb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-PY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tk-TM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rif.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kde.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/se-FI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mni-Beng-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/so-SO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SX.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-AE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-SD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mni.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-GF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/teo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-PF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tn-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ii-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/io.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/el-CY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hant.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hnj-Hmnp.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bho.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jv-ID.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ln.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/smj-SE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mgo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Arab-IQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ks.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/km-KH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nyn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/luo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-LB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/or.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Cyrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vai-Latn-LR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yi-UA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bm.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bs-Latn-BA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ann-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vmw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bal-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/trw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/za-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ne-NP.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-TG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gsw-LI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kk.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/iu-Latn-CA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-DZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dje.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/quc.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Orya-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fy-NL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mgh-MZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-PA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/se-NO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lkt-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tg-TJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/prg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Latn-AZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue-Hans.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-Arab-MY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/syr-IQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-BN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gaa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-UY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/qu-PE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/szl-PL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-IC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hnj-Hmnp-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nmg-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kpe-LR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/trw-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-BF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gsw-FR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mer.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bo-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zu-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sq.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Arab-TR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vai.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ken-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zgh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-SC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/os.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/arn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mas.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/id-ID.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tig-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-QA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cho.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/trv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/blo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/si.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgn-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/moh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/qu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-GM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bss-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sd-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sd-Deva-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kkj-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lag-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Latn-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sat-Olck.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-419.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rhg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ssy.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jmc.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/chr-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-VE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gv-IM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ts-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rof.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bm-Nkoo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Latn-RS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-Shaw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ln-CG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-NE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lv-LV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/su.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/th.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wbp.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mni-Mtei.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/xh-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lkt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gd-GB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/so-DJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz-Cyrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-SA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-LC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rm.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ebu-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bal.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sbp-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yav.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bem.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/no.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mus.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ro-MD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rn-BI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-SY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sa-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bal-Arab-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-WF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wal.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mk.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-TD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/eu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CX.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-GW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sid-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sk-SK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rof-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/it-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nnh-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mni-Mtei-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha-NE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Orya.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-MZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Deva-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-BZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-SL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-BE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dua.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kk-Cyrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pis-SB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-Dsrt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/te-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-LR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tok-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/haw-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-BE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vi-VN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/blt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ky-KG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-KY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rw-RW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vun.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/xh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-IE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cch-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/to.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ml-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/co.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/st-LS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mhn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/as.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ps-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ml.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bas.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-VC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sw-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/agq.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tpi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nus.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bho-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-GN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kk-Arab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ki.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gsw-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lt.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rhg-Rohg-BD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaj-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ak.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/iu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/om-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hu-HU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-MR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nv-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-SX.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/luo-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mg-MG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dje-NE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kab.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hant-MO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kok-Deva.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz-Latn-UZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ti-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-EC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nnh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ku.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yrl-CO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tk.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ii.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bm-ML.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/csw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/os-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-JE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ln-CD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lu-CD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ca-AD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sv-FI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-TC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tok.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bs.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ko-KR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/su-Latn-ID.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vai-Vaii.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/km.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cs.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ts.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bs-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ba-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ltg-LV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-SN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uk.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-DZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue-Hans-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-AG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nds-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-VG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/guz.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nso-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ksf-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ss-SZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sat-Deva-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ceb-PH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ssy-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ksb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-GM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vo-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ckb-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sma.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ast-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dav-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mgh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mn-MN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bew.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lij.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hans.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kpe-GN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/el-polyton.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/eo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-GA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ro.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hr-BA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ur.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/om.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dsb-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/br.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ps.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sw-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ta-LK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rhg-Rohg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nqo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaa-Cyrl-UZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nds.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/so.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/an.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mgo-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bn-BD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/twq.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mn-Mong-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/myv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-RE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-DG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cgg-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kcg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue-Hant.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bez-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-150.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Latn-XK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mn-Mong.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/si-LK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shi-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pa-Guru-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tr-TR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ss-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/it-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hant-HK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-MX.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fa-AF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/naq-NA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kab-DZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/arn-CL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ksf.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kok-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/saq-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gez.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ht.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-YE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nyn-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mai.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wae-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-LY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vmw-MZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgn-OM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shi-Tfng-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yrl-BR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-ID.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cu-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/xnr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-GW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ann.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tyv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bo-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/so-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/az-Arab-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mzn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nso.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kw-GB.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-NC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hans-SG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pa-Arab-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ss.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hans-MY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mhn-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/as-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lmo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lt-LT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bss.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgn-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cop.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mdf-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sw-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sc-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-EG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ta-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ne-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/my-MM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-SY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/apc-SY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ast.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-TD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/to-TO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/it.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sk.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-CD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tpi-PG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/hy-AM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wa-BE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/it-SM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Cyrl-ME.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/br-FR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/qu-EC.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fil-PH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sid.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/und.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru-KZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/st-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kn-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ro-RO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-ML.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-IO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kok-Deva-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-GN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ca-IT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hans-HK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/doi-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/brx.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lld.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ca-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ig.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-DJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/te.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ltg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ce.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/smj-NO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/aa-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/smn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-GQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gu-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tr-CY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/asa-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sdh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/aa-DJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-CW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ksh-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hant-MY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bal-Latn-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/seh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-AO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/saq.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ny-MW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/su-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-SR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wbp-AU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/uz-Cyrl-UZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/se-SE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/syr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/om-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/be.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kln-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/byn-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-VI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gd.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-AI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ksb-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-KW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/myv-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-UM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tzm-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgn-AE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sn-ZW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/aa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yrl-VE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sdh-IQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-JO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shn-MM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-MR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kgp-BR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rhg-Rohg-MM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ckb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-KM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zgh-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lb.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-SN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ca.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sms-FI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ta.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-AU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/prg-PL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-VU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shi-Tfng.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-Arab-BN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ia-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cs-CZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-CL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nb-NO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Telu.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kkj.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-NL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fo-DK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sat-Olck-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/frr-DE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/smj.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bem-ZM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ug-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nl-AW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lrc-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shi-Latn-MA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/rwk-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mni-Beng.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/oc-ES.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bg-BG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-HN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sma-SE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ki-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mas-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sah-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kok.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fo-FO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yav-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/haw.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ak-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lag.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-YT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sd.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cad.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-BI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sl-SI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-PH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ve.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cy.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-HK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dz-BT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-EH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bgc-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ba.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-LR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/or-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ccp-BD.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/osa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/wae.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cic.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ta-SG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/gez-ER.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru-BY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mer-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-AT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-RW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ca-FR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/da-GL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ee.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mic-CA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kl-GL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-BJ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Hans-MO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-FI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nmg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mdf.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/csw-CA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-BF.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ksh.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/io-001.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-SG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mai-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Latn-ME.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ur-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/osa-US.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-GW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-GT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-LU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kln.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sq-MK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mr-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-CU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sat.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/raj-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ewo-CM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pt-CV.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sbp.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mas-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-MY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ht-HT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lg-UG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/doi.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kk-Cyrl-KZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sq-AL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sms.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mk-MK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/yue-Hant-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/se.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ig-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ka-GE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fy.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru-UA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ga.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MQ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ta-MY.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Adlm-NG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/pa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ru-KG.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/tn-BW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/vai-Latn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-DM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-LS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ve-ZA.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nd-ZW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-KN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-NO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/nds-NL.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/oc.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lrc.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/zh-Latn-CN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kaa-Latn-UZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-FM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/so-KE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/lg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv-Telu-IN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ar-BH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-ZW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-LU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MW.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-CH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fa-IR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/smn-FI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kxv.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sr-Cyrl-XK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/de-AT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ff-Latn-NE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/shn.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kam.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ewo.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sah.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ha-GH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sq-XK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/kgp.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/es-PH.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/oc-FR.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/dav.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/skr.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ms-ID.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/am-ET.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ab-GE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-HT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-MU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-SI.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/bs-Cyrl.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-TT.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/mg.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/is-IS.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/cv-RU.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/fr-TN.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/da.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-GM.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sa.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ie-EE.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/ln-AO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/en-MO.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/sd-Arab-PK.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/DateTime-Locale/jmc-TZ.pl — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/File-ShareDir/sample.txt — excluded root dir: local/
+- local/lib/perl5/auto/share/dist/File-ShareDir/subdir/sample.txt — excluded root dir: local/
+- local/lib/perl5/auto/share/module/File-ShareDir/test_file.txt — excluded root dir: local/
+- local/lib/perl5/DateTime/Locale.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Catalog.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Floating.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Local.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/OlsonDB.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/UTC.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/OffsetOnly.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Indian/Mauritius.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Indian/Maldives.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Indian/Chagos.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Madeira.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/South_Georgia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Faroe.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Cape_Verde.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Canary.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Bermuda.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Azores.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Atlantic/Stanley.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/OlsonDB/Rule.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/OlsonDB/Observance.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/OlsonDB/Zone.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/OlsonDB/Change.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Galapagos.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Guam.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Palau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Kosrae.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Tahiti.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Pitcairn.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Fiji.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Kiritimati.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Efate.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Chatham.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Bougainville.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Nauru.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Tarawa.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Tongatapu.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Pago_Pago.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Easter.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Fakaofo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Niue.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Noumea.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Port_Moresby.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Norfolk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Marquesas.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Auckland.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Guadalcanal.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Rarotonga.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Kanton.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Apia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Honolulu.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Gambier.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Pacific/Kwajalein.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Grand_Turk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Fort_Nelson.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Dawson.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Asuncion.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Cuiaba.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Resolute.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Boa_Vista.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Whitehorse.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Port_au_Prince.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Barbados.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Nome.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Denver.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Goose_Bay.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Winnipeg.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Coyhaique.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/New_York.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Sitka.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Toronto.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Martinique.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Guayaquil.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Santo_Domingo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Porto_Velho.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Matamoros.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Bogota.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/El_Salvador.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/St_Johns.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Panama.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Santiago.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Yakutat.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Cambridge_Bay.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Regina.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Sao_Paulo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Rankin_Inlet.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Maceio.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Araguaina.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Nuuk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Merida.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Lima.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Chihuahua.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Belize.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Puerto_Rico.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Guatemala.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Anchorage.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Belem.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Miquelon.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Edmonton.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Los_Angeles.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/La_Paz.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Santarem.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Juneau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Ojinaga.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Rio_Branco.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Adak.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Eirunepe.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Noronha.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Fortaleza.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Bahia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Vancouver.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Thule.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Metlakatla.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Iqaluit.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Bahia_Banderas.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Punta_Arenas.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Halifax.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Chicago.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Scoresbysund.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Hermosillo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Tijuana.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Managua.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Tegucigalpa.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Cayenne.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Manaus.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Mazatlan.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Dawson_Creek.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Boise.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Jamaica.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Havana.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Guyana.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Inuvik.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Paramaribo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Caracas.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Monterrey.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Phoenix.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Danmarkshavn.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Campo_Grande.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Ciudad_Juarez.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Mexico_City.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Cancun.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Recife.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Detroit.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Glace_Bay.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Montevideo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Costa_Rica.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Swift_Current.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Moncton.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Menominee.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Vevay.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Indianapolis.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Marengo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Petersburg.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Vincennes.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Knox.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Tell_City.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Indiana/Winamac.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Ushuaia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Buenos_Aires.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/San_Luis.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Rio_Gallegos.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Salta.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Jujuy.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/La_Rioja.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Cordoba.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Mendoza.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Catamarca.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/Tucuman.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Argentina/San_Juan.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Kentucky/Monticello.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/Kentucky/Louisville.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/North_Dakota/Center.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/North_Dakota/New_Salem.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/America/North_Dakota/Beulah.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Hobart.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Broken_Hill.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Lindeman.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Perth.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Brisbane.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Sydney.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Lord_Howe.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Melbourne.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Eucla.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Darwin.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Australia/Adelaide.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Ho_Chi_Minh.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Yangon.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Qostanay.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Dili.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Novosibirsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Kuching.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Macau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Omsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Anadyr.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Vladivostok.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Srednekolymsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Colombo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Ulaanbaatar.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Pontianak.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Jakarta.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Novokuznetsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Famagusta.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Tomsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Seoul.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Qatar.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Taipei.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Krasnoyarsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Thimphu.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Gaza.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Urumqi.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Barnaul.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Bishkek.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Hebron.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Makassar.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Kabul.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Aqtau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Chita.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Qyzylorda.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Dubai.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Tehran.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Jerusalem.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Karachi.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Dushanbe.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Baku.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Ashgabat.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Hong_Kong.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Sakhalin.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Oral.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Manila.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Nicosia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Kathmandu.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Irkutsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Singapore.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Shanghai.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Pyongyang.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Tbilisi.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Riyadh.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Samarkand.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Beirut.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Atyrau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Tashkent.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Baghdad.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Almaty.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Damascus.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Magadan.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Tokyo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Amman.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Khandyga.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Yekaterinburg.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Dhaka.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Aqtobe.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Bangkok.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Yakutsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Hovd.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Jayapura.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Ust_Nera.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Kamchatka.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Yerevan.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Asia/Kolkata.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Mawson.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Casey.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Rothera.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Palmer.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Troll.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Vostok.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Macquarie.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Antarctica/Davis.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Local/Unix.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Local/VMS.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Local/Android.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Minsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Kirov.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Budapest.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Warsaw.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Tallinn.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Chisinau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Saratov.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Astrakhan.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Gibraltar.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Simferopol.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Sofia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Volgograd.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Helsinki.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Rome.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Malta.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Paris.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Bucharest.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Vilnius.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Ulyanovsk.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Vienna.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Madrid.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Athens.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Moscow.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Dublin.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Kaliningrad.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Istanbul.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Brussels.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Belgrade.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/London.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Zurich.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Kyiv.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Berlin.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Prague.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Samara.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Tirane.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Lisbon.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Riga.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Europe/Andorra.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Johannesburg.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Nairobi.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Tunis.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Juba.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Lagos.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/El_Aaiun.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Abidjan.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Ceuta.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Casablanca.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Khartoum.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Ndjamena.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Cairo.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Algiers.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Tripoli.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Monrovia.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Windhoek.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Sao_Tome.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Bissau.pm — excluded root dir: local/
+- local/lib/perl5/DateTime/TimeZone/Africa/Maputo.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/KeyWrap.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/JWT.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Factory.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Strong.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Weak.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Base.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Strong/devrandom.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Weak/devurandom.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Base/Proc.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Base/Handle.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Base/File.pm — excluded root dir: local/
+- local/lib/perl5/Crypt/Random/Source/Base/RandomDevice.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build.pm — excluded root dir: local/
+- local/lib/perl5/Module/Pluggable.pm — excluded root dir: local/
+- local/lib/perl5/Module/Runtime.pm — excluded root dir: local/
+- local/lib/perl5/Module/Find.pm — excluded root dir: local/
+- local/lib/perl5/Module/Implementation.pm — excluded root dir: local/
+- local/lib/perl5/Module/Pluggable/Object.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Authoring.pod — excluded root dir: local/
+- local/lib/perl5/Module/Build/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/ConfigData.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Config.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Compat.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Cookbook.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Notes.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Dumper.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/PPMMaker.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/API.pod — excluded root dir: local/
+- local/lib/perl5/Module/Build/Bundling.pod — excluded root dir: local/
+- local/lib/perl5/Module/Build/PodParser.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Base.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/MacOS.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/Unix.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/VOS.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/VMS.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/Default.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/cygwin.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/os2.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/aix.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/darwin.pm — excluded root dir: local/
+- local/lib/perl5/Module/Build/Platform/Windows.pm — excluded root dir: local/
+- local/lib/perl5/Path/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Date/Format.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language.pm — excluded root dir: local/
+- local/lib/perl5/Date/Parse.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Icelandic.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Occitan.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Spanish.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Hungarian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Turkish.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Greek.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/TigrinyaEritrean.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Russian_koi8r.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Swedish.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Czech.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/TigrinyaEthiopian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Chinese_GB.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Amharic.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Russian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Finnish.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/French.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Somali.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Afar.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Norwegian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Romanian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Dutch.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/English.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/German.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Brazilian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Austrian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Tigrinya.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Italian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Oromo.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Sidama.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Danish.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Bulgarian.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Chinese.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Russian_cp1251.pm — excluded root dir: local/
+- local/lib/perl5/Date/Language/Gedeo.pm — excluded root dir: local/
+- local/lib/perl5/IO/HTML.pm — excluded root dir: local/
+- local/lib/perl5/namespace/autoclean.pm — excluded root dir: local/
+- local/lib/perl5/namespace/clean.pm — excluded root dir: local/
+- local/lib/perl5/namespace/clean/_Util.pm — excluded root dir: local/
+- local/lib/perl5/Moo/sification.pm — excluded root dir: local/
+- local/lib/perl5/Moo/Object.pm — excluded root dir: local/
+- local/lib/perl5/Moo/Role.pm — excluded root dir: local/
+- local/lib/perl5/Moo/HandleMoose.pm — excluded root dir: local/
+- local/lib/perl5/Moo/_Utils.pm — excluded root dir: local/
+- local/lib/perl5/Moo/HandleMoose/FakeMetaClass.pm — excluded root dir: local/
+- local/lib/perl5/Moo/HandleMoose/_TypeMap.pm — excluded root dir: local/
+- local/lib/perl5/Encode/Locale.pm — excluded root dir: local/
+- local/lib/perl5/HTML/Tagset.pm — excluded root dir: local/
+- local/lib/perl5/Scope/Guard.pm — excluded root dir: local/
+- local/lib/perl5/Math/Random/Secure.pm — excluded root dir: local/
+- local/lib/perl5/Math/Random/ISAAC.pm — excluded root dir: local/
+- local/lib/perl5/Math/Random/ISAAC/PP.pm — excluded root dir: local/
+- local/lib/perl5/Math/Random/Secure/RNG.pm — excluded root dir: local/
+- local/lib/perl5/Time/Zone.pm — excluded root dir: local/
+- local/lib/perl5/CGI/Carp.pm — excluded root dir: local/
+- local/lib/perl5/CGI/Util.pm — excluded root dir: local/
+- local/lib/perl5/CGI/Pretty.pm — excluded root dir: local/
+- local/lib/perl5/CGI/Cookie.pm — excluded root dir: local/
+- local/lib/perl5/CGI/Push.pm — excluded root dir: local/
+- local/lib/perl5/CGI/File/Temp.pm — excluded root dir: local/
+- local/lib/perl5/CGI/HTML/Functions.pm — excluded root dir: local/
+- local/lib/perl5/CGI/HTML/Functions.pod — excluded root dir: local/
+- local/lib/perl5/Sub/Uplevel.pm — excluded root dir: local/
+- local/lib/perl5/Sub/Exporter.pm — excluded root dir: local/
+- local/lib/perl5/Sub/Quote.pm — excluded root dir: local/
+- local/lib/perl5/Sub/Defer.pm — excluded root dir: local/
+- local/lib/perl5/Sub/Install.pm — excluded root dir: local/
+- local/lib/perl5/Sub/Exporter/Tutorial.pod — excluded root dir: local/
+- local/lib/perl5/Sub/Exporter/Util.pm — excluded root dir: local/
+- local/lib/perl5/Sub/Exporter/Cookbook.pod — excluded root dir: local/
+- local/lib/perl5/Sub/Exporter/Progressive.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XString.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/dbixs_rev.pl — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/perllocal.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/GD.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/CryptX.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Clone.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Proc/ProcessTable.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Proc/Killall.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Proc/Killfam.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Proc/ProcessTable/Process.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Specio-0.53/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Specio-0.53/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Exporter-Tiny-1.006002/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Exporter-Tiny-1.006002/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-LeakTrace-0.17/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-LeakTrace-0.17/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Proc-ProcessTable-0.637/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Proc-ProcessTable-0.637/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/IO-HTML-1.004/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/IO-HTML-1.004/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Eval-Closure-0.14/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Eval-Closure-0.14/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Future-AsyncAwait-0.71/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Future-AsyncAwait-0.71/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DateTime-1.66/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DateTime-1.66/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-Which-1.27/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-Which-1.27/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Crypt-Random-Source-0.14/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Crypt-Random-Source-0.14/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Fork-0.02/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Fork-0.02/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Without-Module-0.23/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Without-Module-0.23/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/IPC-Run3-0.049/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/IPC-Run3-0.049/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Exporter-Progressive-0.001013/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Exporter-Progressive-0.001013/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DBI-1.647/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DBI-1.647/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/CGI-4.71/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/CGI-4.71/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTTP-Date-6.06/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTTP-Date-6.06/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/GD-2.83/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/GD-2.83/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/LWP-MediaTypes-6.04/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/LWP-MediaTypes-6.04/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Path-Tiny-0.150/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Path-Tiny-0.150/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/URI-5.34/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/URI-5.34/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Try-Tiny-0.32/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Try-Tiny-0.32/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-Copy-Recursive-0.45/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-Copy-Recursive-0.45/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Build-Tiny-0.052/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Build-Tiny-0.052/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/List-MoreUtils-0.430/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/List-MoreUtils-0.430/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-Config-0.010/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-Config-0.010/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Moo-2.005005/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Moo-2.005005/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-ShareDir-Install-0.14/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-ShareDir-Install-0.14/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Build-0.4234/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Build-0.4234/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Method-Modifiers-2.15/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Method-Modifiers-2.15/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-File-ShareDir-1.001002/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-File-ShareDir-1.001002/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DateTime-Locale-1.45/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DateTime-Locale-1.45/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/namespace-clean-0.27/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/namespace-clean-0.27/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Find-0.17/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Find-0.17/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/MRO-Compat-0.15/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/MRO-Compat-0.15/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Scope-Guard-0.21/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Scope-Guard-0.21/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTML-Parser-3.83/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTML-Parser-3.83/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Variable-Magic-0.64/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Variable-Magic-0.64/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Params-Util-1.102/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Params-Util-1.102/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/TimeDate-2.33/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/TimeDate-2.33/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Capture-Tiny-0.50/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Capture-Tiny-0.50/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Package-Stash-0.40/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Package-Stash-0.40/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Dist-CheckConflicts-0.11/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Dist-CheckConflicts-0.11/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/YAML-LibYAML-v0.904.0/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/YAML-LibYAML-v0.904.0/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-CChecker-0.12/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-CChecker-0.12/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/JSON-XS-4.04/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/JSON-XS-4.04/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/namespace-autoclean-0.31/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/namespace-autoclean-0.31/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Pod-1.52/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Pod-1.52/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Params-ValidationCompiler-0.31/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Params-ValidationCompiler-0.31/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Runtime-0.018/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Runtime-0.018/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/B-COW-0.007/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/B-COW-0.007/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Crypt-JWT-0.037/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Crypt-JWT-0.037/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Deep-1.205/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Deep-1.205/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Data-Inheritable-0.10/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Data-Inheritable-0.10/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Clone-PP-1.08/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Clone-PP-1.08/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Exception-Class-1.45/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Exception-Class-1.45/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Needs-0.002010/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Needs-0.002010/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Future-0.52/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Future-0.52/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Singleton-1.6/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Singleton-1.6/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Data-Structure-Util-0.16/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Data-Structure-Util-0.16/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Clone-0.47/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Clone-0.47/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Devel-StackTrace-2.05/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Devel-StackTrace-2.05/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-ShareDir-1.118/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/File-ShareDir-1.118/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/MIME-Base32-1.303/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/MIME-Base32-1.303/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/IPC-System-Simple-1.30/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/IPC-System-Simple-1.30/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Type-Tiny-2.008006/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Type-Tiny-2.008006/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Requires-0.11/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Requires-0.11/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Fatal-0.018/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Fatal-0.018/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test2-Plugin-NoWarnings-0.10/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test2-Plugin-NoWarnings-0.10/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Data-OptList-0.114/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Data-OptList-0.114/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/XS-Parse-Sublike-0.40/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/XS-Parse-Sublike-0.40/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-PkgConfig-1.16/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-PkgConfig-1.16/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Math-Random-ISAAC-1.004/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Math-Random-ISAAC-1.004/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Exporter-0.991/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Exporter-0.991/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-NoWarnings-1.06/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-NoWarnings-1.06/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/XString-0.005/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/XString-0.005/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Math-Random-Secure-0.080001/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Math-Random-Secure-0.080001/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DateTime-TimeZone-2.65/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/DateTime-TimeZone-2.65/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Accessor-0.51/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Accessor-0.51/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Tie-IxHash-1.23/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Tie-IxHash-1.23/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTML-Tagset-3.24/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTML-Tagset-3.24/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Install-0.929/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Install-0.929/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Role-Tiny-2.002004/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Role-Tiny-2.002004/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/CPAN-Meta-Check-0.018/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/CPAN-Meta-Check-0.018/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/XS-Parse-Keyword-0.49/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/XS-Parse-Keyword-0.49/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Warn-0.37/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Warn-0.37/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/JSON-4.10/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/JSON-4.10/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/String-ShellQuote-1.04/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/String-ShellQuote-1.04/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Uplevel-0.2800/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Uplevel-0.2800/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/B-Hooks-EndOfScope-0.28/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/B-Hooks-EndOfScope-0.28/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-SharedFork-0.35/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-SharedFork-0.35/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Tiny-1.008/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Tiny-1.008/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Package-Stash-XS-0.30/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Package-Stash-XS-0.30/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/common-sense-3.75/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/common-sense-3.75/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Locale-Maketext-Lexicon-1.00/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Locale-Maketext-Lexicon-1.00/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTTP-Message-7.01/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/HTTP-Message-7.01/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Encode-Locale-1.05/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Encode-Locale-1.05/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Quote-2.006009/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Sub-Quote-2.006009/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/CryptX-0.087/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/CryptX-0.087/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Implementation-0.09/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Implementation-0.09/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-File-1.995/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-File-1.995/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-InstallPaths-0.015/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-InstallPaths-0.015/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Pluggable-6.3/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Module-Pluggable-6.3/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Inspector-1.36/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Class-Inspector-1.36/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Mojolicious-9.42/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Mojolicious-9.42/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Warnings-0.038/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Test-Warnings-0.038/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-Helpers-0.028/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/ExtUtils-Helpers-0.028/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/UUID-Tiny-1.04/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/UUID-Tiny-1.04/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Types-Serialiser-1.01/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Types-Serialiser-1.01/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/List-MoreUtils-XS-0.430/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/List-MoreUtils-XS-0.430/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Canary-Stability-2013/MYMETA.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/.meta/Canary-Stability-2013/install.json — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Test/LeakTrace.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Test/LeakTrace/JA.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Test/LeakTrace/Script.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Test/Future/AsyncAwait/Awaitable.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Variable/Magic.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/CPAN/Meta/Check/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Proc/ProcessTable/ProcessTable.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Proc/ProcessTable/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Proc/ProcessTable/Process/autosplit.ix — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Devel/StackTrace/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Capture/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/LWP/MediaTypes/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Role/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Types/Serialiser/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Locale/Maketext/Lexicon/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Pod/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Fork/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Warn/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/File/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/File/ShareDir/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Without/Module/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Needs/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/SharedFork/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Deep/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/LeakTrace/LeakTrace.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/LeakTrace/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/NoWarnings/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Requires/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Warnings/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test/Fatal/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Canary/Stability/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/File/ShareDir/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/File/ShareDir/Install/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/File/Copy/Recursive/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/File/Which/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Variable/Magic/Magic.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Variable/Magic/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Dist/CheckConflicts/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DateTime/DateTime.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DateTime/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DateTime/Locale/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DateTime/TimeZone/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Crypt/JWT/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Crypt/Random/Source/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Module/Runtime/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Module/Pluggable/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Module/Implementation/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Module/Find/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Module/Build/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Module/Build/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Path/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Date/Parse/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/dbipport.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/DBI.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/dbivport.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/dbi_sql.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/Driver.xst — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/dbd_xsh.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/dbixs_rev.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/DBIXS.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/DBI/Driver_xst.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/IO/HTML/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XString/XString.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XString/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/namespace/clean/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/namespace/autoclean/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Moo/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Encode/Locale/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/HTML/Tagset/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/HTML/Parser/Parser.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/HTML/Parser/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Scope/Guard/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Math/Random/ISAAC/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Math/Random/Secure/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XS/Parse/Sublike/Sublike.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XS/Parse/Sublike/Sublike.bs — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XS/Parse/Sublike/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XS/Parse/Keyword/Keyword.bs — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XS/Parse/Keyword/Keyword.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/XS/Parse/Keyword/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/CryptX/CryptX.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/CryptX/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/CGI/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Sub/Install/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Sub/Quote/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Sub/Uplevel/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Sub/Exporter/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Sub/Exporter/Progressive/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/common/sense/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/JSON/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/JSON/XS/XS.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/JSON/XS/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Type/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Tie/IxHash/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Clone/Clone.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Clone/autosplit.ix — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Clone/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Clone/PP/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/ExtUtils/PkgConfig/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/ExtUtils/Config/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/ExtUtils/InstallPaths/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/ExtUtils/CChecker/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/ExtUtils/Helpers/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/HTTP/Date/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/HTTP/Message/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/List/MoreUtils/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/List/MoreUtils/XS/XS.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/List/MoreUtils/XS/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Params/Util/Util.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Params/Util/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Params/ValidationCompiler/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Try/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Class/Inspector/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Class/Accessor/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Class/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Class/Singleton/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Class/Data/Inheritable/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Class/Method/Modifiers/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/YAML/LibYAML/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/YAML/XS/LibYAML/LibYAML.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/MIME/Base32/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/GD/GD.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/GD/autosplit.ix — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/GD/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/IPC/Run3/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/IPC/System/Simple/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Exporter/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/String/ShellQuote/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Eval/Closure/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Test2/Plugin/NoWarnings/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/MRO/Compat/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Data/OptList/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Data/Structure/Util/autosplit.ix — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Data/Structure/Util/Util.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Data/Structure/Util/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/URI/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/UUID/Tiny/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Specio/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Exception/Class/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Future/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Future/AsyncAwait/AsyncAwait.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Future/AsyncAwait/AsyncAwait.bs — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Future/AsyncAwait/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/B/Hooks/EndOfScope/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/B/COW/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/B/COW/COW.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Package/Stash/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Package/Stash/XS/XS.bundle — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Package/Stash/XS/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/Mojolicious/.packlist — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/share/module/XS-Parse-Keyword/include/XSParseKeyword.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/share/module/Future-AsyncAwait/include/AsyncAwait.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/share/module/XS-Parse-Infix/include/XSParseInfix.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/auto/share/module/XS-Parse-Sublike/include/XSParseSublike.h — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/Infinite.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/Duration.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/PPExtra.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/PP.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/Types.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/Conflicts.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/LeapSecond.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DateTime/Helpers.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Misc.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PRNG.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Checksum.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mode.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/AuthEnc.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/KeyDerivation.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK/RSA.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK/DH.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK/ECC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK/Ed25519.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK/DSA.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PK/X25519.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mode/CFB.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mode/CBC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mode/OFB.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mode/ECB.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mode/CTR.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA512.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA3_224.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2s_256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/RIPEMD128.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/Keccak224.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/MD2.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2s_160.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA1.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA384.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHAKE.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/RIPEMD320.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA512_224.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2s_128.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/RIPEMD256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/CHAES.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA512_256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/RIPEMD160.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA3_512.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2b_512.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/Keccak512.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA224.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2b_160.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/MD4.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/Keccak384.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2b_384.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA3_384.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/Tiger192.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/MD5.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2b_256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/Keccak256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/SHA3_256.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/BLAKE2s_224.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Digest/Whirlpool.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Stream/ChaCha.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Stream/Salsa20.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Stream/Sober128.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Stream/RC4.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Stream/Rabbit.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Stream/Sosemanuk.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Twofish.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/MULTI2.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/KASUMI.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/SAFER_SK64.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/AES.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/SAFERP.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Serpent.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/RC6.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/RC2.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Camellia.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/SEED.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/RC5.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/SAFER_K128.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/SAFER_K64.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Blowfish.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/XTEA.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Skipjack.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/DES_EDE.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/IDEA.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Noekeon.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Anubis.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/Khazad.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/DES.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/CAST5.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Cipher/SAFER_SK128.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PRNG/Fortuna.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PRNG/Yarrow.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PRNG/Sober128.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PRNG/ChaCha20.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/PRNG/RC4.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/BLAKE2s.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/PMAC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/XCBC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/F9.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/OMAC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/Poly1305.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/BLAKE2b.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/HMAC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Mac/Pelican.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Checksum/Adler32.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/Checksum/CRC32.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/AuthEnc/OCB.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/AuthEnc/ChaCha20Poly1305.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/AuthEnc/CCM.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/AuthEnc/EAX.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Crypt/AuthEnc/GCM.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Changes.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/ProfileDumper.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/PurePerl.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Profile.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/ProfileData.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/DBD.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/W32ODBC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/ProxyServer.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/ProfileSubs.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Util/_accessor.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Util/CacheMemory.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Execute.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Response.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Request.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Serializer/DataDumper.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Serializer/Storable.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Serializer/Base.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Transport/pipeone.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Transport/stream.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Gofer/Transport/Base.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Const/GetInfoType.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Const/GetInfoReturn.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Const/GetInfo/ODBC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/Const/GetInfo/ANSI.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/DBD/Metadata.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/DBD/SqlEngine.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/DBD/SqlEngine/Developers.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/DBD/SqlEngine/HowTo.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/ProfileDumper/Apache.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBI/SQL/Nano.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Sublike/Extended.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Bundle/DBI.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/LinkExtor.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/PullParser.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/HeadParser.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/Parser.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/Filter.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/Entities.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/HTML/TokeParser.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Math/BigInt/LTM.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Sublike.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Infix.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Keyword.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Sublike/Builder.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Infix/Builder_data.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Infix/Builder.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Keyword/Builder_data.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/XS/Parse/Keyword/Builder.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/common/sense.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/common/sense.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/JSON/XS.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/JSON/XS/Boolean.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/List/MoreUtils/XS.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Params/Util.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Params/Util/PP.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/YAML/XS.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/YAML/XS.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/YAML/LibYAML.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/YAML/LibYAML.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/YAML/XS/LibYAML.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/GD/Polygon.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/GD/Polyline.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/GD/Group.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/GD/Simple.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/GD/Image.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/DBM.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/NullP.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Proxy.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/ExampleP.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/File.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Mem.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Sponge.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/File/Developers.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/File/Roadmap.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/File/HowTo.pod — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Transport/pipeone.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Transport/null.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Transport/stream.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Transport/corostream.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Transport/Base.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Policy/classic.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Policy/pedantic.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Policy/Base.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/DBD/Gofer/Policy/rush.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Win32/DBIODBC.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Data/Structure/Util.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Future/AsyncAwait.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Future/AsyncAwait/ExtensionBuilder.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Future/AsyncAwait/Awaitable.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/B/COW.pm — excluded root dir: local/
+- local/lib/perl5/darwin-thread-multi-2level/Package/Stash/XS.pm — excluded root dir: local/
+- local/lib/perl5/Reply/Plugin/TypeTiny.pm — excluded root dir: local/
+- local/lib/perl5/JSON/backportPP.pm — excluded root dir: local/
+- local/lib/perl5/JSON/backportPP/Compat5006.pm — excluded root dir: local/
+- local/lib/perl5/JSON/backportPP/Boolean.pm — excluded root dir: local/
+- local/lib/perl5/JSON/backportPP/Compat5005.pm — excluded root dir: local/
+- local/lib/perl5/Type/Params.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Type/Library.pm — excluded root dir: local/
+- local/lib/perl5/Type/Registry.pm — excluded root dir: local/
+- local/lib/perl5/Type/Utils.pm — excluded root dir: local/
+- local/lib/perl5/Type/Coercion.pm — excluded root dir: local/
+- local/lib/perl5/Type/Parser.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tie.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/ConstrainedObject.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Role.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Duck.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Class.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/_DeclaredType.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Intersection.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Enum.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/_HalfOp.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Bitfield.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Union.pm — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Libraries.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithMoo3.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithMoo2.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Optimization.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Policies.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Params.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Contributing.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Coercions.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithClassTiny.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithTestMore.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithMite.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithMoose.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/AllTypes.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/NonOO.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithMouse.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/Installation.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithMoo.pod — excluded root dir: local/
+- local/lib/perl5/Type/Tiny/Manual/UsingWithOther.pod — excluded root dir: local/
+- local/lib/perl5/Type/Params/Signature.pm — excluded root dir: local/
+- local/lib/perl5/Type/Params/Parameter.pm — excluded root dir: local/
+- local/lib/perl5/Type/Params/Alternatives.pm — excluded root dir: local/
+- local/lib/perl5/Type/Coercion/FromMoose.pm — excluded root dir: local/
+- local/lib/perl5/Type/Coercion/Union.pm — excluded root dir: local/
+- local/lib/perl5/Tie/IxHash.pm — excluded root dir: local/
+- local/lib/perl5/Clone/PP.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/Config.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/PkgConfig.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/CChecker.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/InstallPaths.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/Helpers.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/Config/MakeMaker.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/Helpers/Unix.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/Helpers/VMS.pm — excluded root dir: local/
+- local/lib/perl5/ExtUtils/Helpers/Windows.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Config.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Message.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Response.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Request.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Headers.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Status.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Date.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Headers/Auth.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Headers/Util.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Headers/ETag.pm — excluded root dir: local/
+- local/lib/perl5/HTTP/Request/Common.pm — excluded root dir: local/
+- local/lib/perl5/List/MoreUtils.pm — excluded root dir: local/
+- local/lib/perl5/List/MoreUtils/PP.pm — excluded root dir: local/
+- local/lib/perl5/List/MoreUtils/Contributing.pod — excluded root dir: local/
+- local/lib/perl5/Params/ValidationCompiler.pm — excluded root dir: local/
+- local/lib/perl5/Params/ValidationCompiler/Compiler.pm — excluded root dir: local/
+- local/lib/perl5/Params/ValidationCompiler/Exceptions.pm — excluded root dir: local/
+- local/lib/perl5/Try/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Class/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Class/Accessor.pm — excluded root dir: local/
+- local/lib/perl5/Class/Inspector.pm — excluded root dir: local/
+- local/lib/perl5/Class/Singleton.pm — excluded root dir: local/
+- local/lib/perl5/Class/Inspector/Functions.pm — excluded root dir: local/
+- local/lib/perl5/Class/Accessor/Fast.pm — excluded root dir: local/
+- local/lib/perl5/Class/Accessor/Faster.pm — excluded root dir: local/
+- local/lib/perl5/Class/Data/Inheritable.pm — excluded root dir: local/
+- local/lib/perl5/Class/Method/Modifiers.pm — excluded root dir: local/
+- local/lib/perl5/MIME/Base32.pm — excluded root dir: local/
+- local/lib/perl5/IPC/Run3.pm — excluded root dir: local/
+- local/lib/perl5/IPC/Run3/ProfReporter.pm — excluded root dir: local/
+- local/lib/perl5/IPC/Run3/ProfLogger.pm — excluded root dir: local/
+- local/lib/perl5/IPC/Run3/ProfLogReader.pm — excluded root dir: local/
+- local/lib/perl5/IPC/Run3/ProfPP.pm — excluded root dir: local/
+- local/lib/perl5/IPC/Run3/ProfArrayBuffer.pm — excluded root dir: local/
+- local/lib/perl5/IPC/System/Simple.pm — excluded root dir: local/
+- local/lib/perl5/Exporter/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Exporter/Shiny.pm — excluded root dir: local/
+- local/lib/perl5/Exporter/Tiny/Manual/Exporting.pod — excluded root dir: local/
+- local/lib/perl5/Exporter/Tiny/Manual/QuickStart.pod — excluded root dir: local/
+- local/lib/perl5/Exporter/Tiny/Manual/Etc.pod — excluded root dir: local/
+- local/lib/perl5/Exporter/Tiny/Manual/Importing.pod — excluded root dir: local/
+- local/lib/perl5/String/ShellQuote.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Exception.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Promise.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Asset.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Log.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Upload.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Home.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/UserAgent.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Reactor.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/BaseUtil.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/DynamicMethods.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/ByteStream.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Transaction.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Util.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/SSE.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Message.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Cache.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/File.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Content.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Cookie.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/URL.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Template.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Collection.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Parameters.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Loader.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Headers.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/EventEmitter.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/HelloWorld.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/WebSocket.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/DOM.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Base.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Date.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Path.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/JSON.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Transaction/HTTP.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Transaction/WebSocket.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/UserAgent/Server.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/UserAgent/Transactor.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/UserAgent/Proxy.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/UserAgent/CookieJar.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Asset/Memory.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Asset/File.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/resources/html_entities.txt — excluded root dir: local/
+- local/lib/perl5/Mojo/Content/MultiPart.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Content/Single.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Message/Response.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Message/Request.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/Hypnotoad.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/CGI.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/PSGI.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/Morbo.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/Prefork.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/Daemon.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/Morbo/Backend.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Server/Morbo/Backend/Poll.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/JSON/Pointer.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/DOM/HTML.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/DOM/CSS.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Cookie/Response.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Cookie/Request.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/Server.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/Client.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/Subprocess.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/Stream.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/TLS.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/resources/server.key — excluded root dir: local/
+- local/lib/perl5/Mojo/IOLoop/resources/server.crt — excluded root dir: local/
+- local/lib/perl5/Mojo/Reactor/EV.pm — excluded root dir: local/
+- local/lib/perl5/Mojo/Reactor/Poll.pm — excluded root dir: local/
+- local/lib/perl5/Eval/TypeTiny.pm — excluded root dir: local/
+- local/lib/perl5/Eval/Closure.pm — excluded root dir: local/
+- local/lib/perl5/Eval/TypeTiny/CodeAccumulator.pm — excluded root dir: local/
+- local/lib/perl5/Test2/Warnings.pm — excluded root dir: local/
+- local/lib/perl5/Test2/Plugin/NoWarnings.pm — excluded root dir: local/
+- local/lib/perl5/Test2/Event/Warning.pm — excluded root dir: local/
+- local/lib/perl5/MRO/Compat.pm — excluded root dir: local/
+- local/lib/perl5/Data/OptList.pm — excluded root dir: local/
+- local/lib/perl5/URI/IRI.pm — excluded root dir: local/
+- local/lib/perl5/URI/gopher.pm — excluded root dir: local/
+- local/lib/perl5/URI/Escape.pm — excluded root dir: local/
+- local/lib/perl5/URI/_emailauth.pm — excluded root dir: local/
+- local/lib/perl5/URI/ldapi.pm — excluded root dir: local/
+- local/lib/perl5/URI/telnet.pm — excluded root dir: local/
+- local/lib/perl5/URI/rsync.pm — excluded root dir: local/
+- local/lib/perl5/URI/geo.pm — excluded root dir: local/
+- local/lib/perl5/URI/https.pm — excluded root dir: local/
+- local/lib/perl5/URI/sip.pm — excluded root dir: local/
+- local/lib/perl5/URI/_punycode.pm — excluded root dir: local/
+- local/lib/perl5/URI/nntps.pm — excluded root dir: local/
+- local/lib/perl5/URI/icap.pm — excluded root dir: local/
+- local/lib/perl5/URI/ldap.pm — excluded root dir: local/
+- local/lib/perl5/URI/WithBase.pm — excluded root dir: local/
+- local/lib/perl5/URI/_query.pm — excluded root dir: local/
+- local/lib/perl5/URI/irc.pm — excluded root dir: local/
+- local/lib/perl5/URI/icaps.pm — excluded root dir: local/
+- local/lib/perl5/URI/urn.pm — excluded root dir: local/
+- local/lib/perl5/URI/_generic.pm — excluded root dir: local/
+- local/lib/perl5/URI/ircs.pm — excluded root dir: local/
+- local/lib/perl5/URI/smb.pm — excluded root dir: local/
+- local/lib/perl5/URI/_userpass.pm — excluded root dir: local/
+- local/lib/perl5/URI/snews.pm — excluded root dir: local/
+- local/lib/perl5/URI/nntp.pm — excluded root dir: local/
+- local/lib/perl5/URI/Split.pm — excluded root dir: local/
+- local/lib/perl5/URI/file.pm — excluded root dir: local/
+- local/lib/perl5/URI/otpauth.pm — excluded root dir: local/
+- local/lib/perl5/URI/ftps.pm — excluded root dir: local/
+- local/lib/perl5/URI/mms.pm — excluded root dir: local/
+- local/lib/perl5/URI/ftpes.pm — excluded root dir: local/
+- local/lib/perl5/URI/rlogin.pm — excluded root dir: local/
+- local/lib/perl5/URI/URL.pm — excluded root dir: local/
+- local/lib/perl5/URI/ws.pm — excluded root dir: local/
+- local/lib/perl5/URI/wss.pm — excluded root dir: local/
+- local/lib/perl5/URI/smtp.pm — excluded root dir: local/
+- local/lib/perl5/URI/http.pm — excluded root dir: local/
+- local/lib/perl5/URI/rtspu.pm — excluded root dir: local/
+- local/lib/perl5/URI/_login.pm — excluded root dir: local/
+- local/lib/perl5/URI/rtsp.pm — excluded root dir: local/
+- local/lib/perl5/URI/QueryParam.pm — excluded root dir: local/
+- local/lib/perl5/URI/_segment.pm — excluded root dir: local/
+- local/lib/perl5/URI/ldaps.pm — excluded root dir: local/
+- local/lib/perl5/URI/ssh.pm — excluded root dir: local/
+- local/lib/perl5/URI/sftp.pm — excluded root dir: local/
+- local/lib/perl5/URI/_ldap.pm — excluded root dir: local/
+- local/lib/perl5/URI/Heuristic.pm — excluded root dir: local/
+- local/lib/perl5/URI/data.pm — excluded root dir: local/
+- local/lib/perl5/URI/sips.pm — excluded root dir: local/
+- local/lib/perl5/URI/scp.pm — excluded root dir: local/
+- local/lib/perl5/URI/pop.pm — excluded root dir: local/
+- local/lib/perl5/URI/tn3270.pm — excluded root dir: local/
+- local/lib/perl5/URI/news.pm — excluded root dir: local/
+- local/lib/perl5/URI/_idna.pm — excluded root dir: local/
+- local/lib/perl5/URI/_foreign.pm — excluded root dir: local/
+- local/lib/perl5/URI/_server.pm — excluded root dir: local/
+- local/lib/perl5/URI/ftp.pm — excluded root dir: local/
+- local/lib/perl5/URI/mailto.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/Unix.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/QNX.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/Win32.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/OS2.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/Mac.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/Base.pm — excluded root dir: local/
+- local/lib/perl5/URI/file/FAT.pm — excluded root dir: local/
+- local/lib/perl5/URI/urn/oid.pm — excluded root dir: local/
+- local/lib/perl5/URI/urn/isbn.pm — excluded root dir: local/
+- local/lib/perl5/UUID/Tiny.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Exception.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Exporter.pm — excluded root dir: local/
+- local/lib/perl5/Specio/PP.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Registry.pm — excluded root dir: local/
+- local/lib/perl5/Specio/DeclaredAt.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Subs.pm — excluded root dir: local/
+- local/lib/perl5/Specio/OO.pm — excluded root dir: local/
+- local/lib/perl5/Specio/XS.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Declare.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Coercion.pm — excluded root dir: local/
+- local/lib/perl5/Specio/PartialDump.pm — excluded root dir: local/
+- local/lib/perl5/Specio/TypeChecks.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Helpers.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Role/Inlinable.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Perl.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Builtins.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Numeric.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Structured.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/String.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Structured/Tuple.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Structured/Map.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Library/Structured/Dict.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/ObjectIsa.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Structurable.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/ObjectDoes.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/ObjectCan.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Parameterizable.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/AnyDoes.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Structured.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Simple.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Intersection.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Enum.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Union.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/AnyIsa.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Parameterized.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/AnyCan.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Role/Interface.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Role/DoesType.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Role/CanType.pm — excluded root dir: local/
+- local/lib/perl5/Specio/Constraint/Role/IsaType.pm — excluded root dir: local/
+- local/lib/perl5/Error/TypeTiny.pm — excluded root dir: local/
+- local/lib/perl5/Error/TypeTiny/WrongNumberOfParameters.pm — excluded root dir: local/
+- local/lib/perl5/Error/TypeTiny/Assertion.pm — excluded root dir: local/
+- local/lib/perl5/Error/TypeTiny/Compilation.pm — excluded root dir: local/
+- local/lib/perl5/Exception/Class.pm — excluded root dir: local/
+- local/lib/perl5/Exception/Class/Base.pm — excluded root dir: local/
+- local/lib/perl5/Future/Exception.pm — excluded root dir: local/
+- local/lib/perl5/Future/Phrasebook.pod — excluded root dir: local/
+- local/lib/perl5/Future/PP.pm — excluded root dir: local/
+- local/lib/perl5/Future/Utils.pm — excluded root dir: local/
+- local/lib/perl5/Future/Mutex.pm — excluded root dir: local/
+- local/lib/perl5/Method/Generate/Accessor.pm — excluded root dir: local/
+- local/lib/perl5/Method/Generate/Constructor.pm — excluded root dir: local/
+- local/lib/perl5/Method/Generate/BuildAll.pm — excluded root dir: local/
+- local/lib/perl5/Method/Generate/DemolishAll.pm — excluded root dir: local/
+- local/lib/perl5/B/Hooks/EndOfScope.pm — excluded root dir: local/
+- local/lib/perl5/B/Hooks/EndOfScope/PP.pm — excluded root dir: local/
+- local/lib/perl5/B/Hooks/EndOfScope/XS.pm — excluded root dir: local/
+- local/lib/perl5/B/Hooks/EndOfScope/PP/FieldHash.pm — excluded root dir: local/
+- local/lib/perl5/B/Hooks/EndOfScope/PP/HintHash.pm — excluded root dir: local/
+- local/lib/perl5/Package/Stash.pm — excluded root dir: local/
+- local/lib/perl5/Package/Stash/PP.pm — excluded root dir: local/
+- local/lib/perl5/Package/Stash/Conflicts.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Sessions.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugins.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Validator.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Controller.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Renderer.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Types.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Static.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Lite.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Routes.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Commands.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Validator/Validation.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/favicon.ico — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/mojo.css — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/logo-white.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/noraptor.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/failraptor.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/logo.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/logo-white-2x.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/pinstripe-dark.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/pinstripe-light.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/notfound.png — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/popper/popper.js — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/bootstrap/bootstrap.css — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/bootstrap/bootstrap.js — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/bootstrap/bootstrap.min.css.map — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/highlight.js/highlight-mojo-dark.css — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/highlight.js/mojolicious.min.js — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/public/mojo/highlight.js/highlight.min.js — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/templates/mojo/debug.html.ep — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/templates/mojo/not_found.html.ep — excluded root dir: local/
+- local/lib/perl5/Mojolicious/resources/templates/mojo/exception.html.ep — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/JSONConfig.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/Config.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/NotYAMLConfig.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/TagHelpers.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/DefaultHelpers.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/HeaderCondition.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/EPRenderer.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/EPLRenderer.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Plugin/Mount.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Tutorial.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Testing.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Contributing.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Growing.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Rendering.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Cookbook.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/FAQ.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Guides/Routing.pod — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/version.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/cgi.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/psgi.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/eval.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/prefork.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/routes.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/daemon.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/get.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/generate.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/inflate.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/cpanify.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/generate/makefile.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/generate/plugin.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/generate/app.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/generate/dockerfile.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Command/Author/generate/lite_app.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Routes/Route.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Routes/Pattern.pm — excluded root dir: local/
+- local/lib/perl5/Mojolicious/Routes/Match.pm — excluded root dir: local/
+- public/.DS_Store — excluded by glob: .DS_Store
+- logs/.gitkeep — excluded root dir: logs/
+- logs/standalone_results.log — excluded root dir: logs/
+- lib/RenderApp.pm — excluded root dir: lib/
+- lib/WeBWorK/VERSION — excluded root dir: lib/
+- lib/WeBWorK/logs/render_timing.log — excluded root dir: lib/
+- lib/WeBWorK/htdocs/site_info.txt — excluded root dir: lib/
+- lib/WeBWorK/htdocs/favicon.ico — excluded root dir: lib/
+- lib/WeBWorK/htdocs/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/mathjax — excluded root dir: lib/
+- lib/WeBWorK/htdocs/package-lock.json — excluded root dir: lib/
+- lib/WeBWorK/htdocs/package.json — excluded root dir: lib/
+- lib/WeBWorK/htdocs/library-tree.json — excluded root dir: lib/
+- lib/WeBWorK/htdocs/show-source.cgi — excluded root dir: lib/
+- lib/WeBWorK/htdocs/site_info.custom.txt — excluded root dir: lib/
+- lib/WeBWorK/htdocs/crossdomain.xml — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/math2/math2.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/math2/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/math2/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/math2/codeshard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/math2/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/ubc.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navProbList.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navPrev.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navNext.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navProbListGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/wwlogo04.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navUp.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navNextGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navProbList.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navbuttonsgrey.tgz — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navPrev.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navNext.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navUpGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navPrevGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/unsupported-themes/ubc/images/navUp.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/WeBWorKAppletTest.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/live_map_instructions.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/PointGraph/MultiPointGraph.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/source/GummyGraph.java — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/source/SketchGraph.java — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/source/GraphApplet.java — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/xFunctions/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/xFunctions/xFunctions.zip — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/xFunctions/using_examples.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/xFunctions/example_file.txt — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/xFunctions/xFunctions.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/liveJar/liveJar.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/liveJar/test.m — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/liveJar/live.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_gui.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_export.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_applet_java2javascript.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_blank.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/transformationstest2.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/vectortest.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_blank2.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_webstart.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_blank3.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/quadratictest.ggb — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_properties.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_main.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra.xml — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra_cas.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/unsigned/geogebra_gui.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/unsigned/geogebra_export.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/unsigned/geogebra_properties.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/unsigned/geogebra_main.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/unsigned/geogebra.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/unsigned/geogebra_cas.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/72x72/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/72x72/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/72x72/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/96x96/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/96x96/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/96x96/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/16x16/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/16x16/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/16x16/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/64x64/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/64x64/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/64x64/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/32x32/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/32x32/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/32x32/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/24x24/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/24x24/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/24x24/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/128x128/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/128x128/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/128x128/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/256x256/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/256x256/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/256x256/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/22x22/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/22x22/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/22x22/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/192x192/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/192x192/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/192x192/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/scalable/mimetypes/application-vnd.geogebra.file.svgz — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/scalable/mimetypes/application-vnd.geogebra.tool.svgz — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/scalable/apps/geogebra.svgz — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/36x36/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/36x36/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/36x36/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/48x48/mimetypes/application-vnd.geogebra.tool.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/48x48/mimetypes/application-vnd.geogebra.file.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/icons/hicolor/48x48/apps/geogebra.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra/properties/javaui.properties — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra/properties/menu.properties — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra/properties/error.properties — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/geogebra_stable/geogebra/properties/plain.properties — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/MiscFunctions.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/VCRButton.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Syntax_error.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Image_and_Cursor_All.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/afghanistan_borders.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/AF-MAP.JPG — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/BinaryExpr.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/UnaryExpr.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/water_fountain_1.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/curve_template.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/SyntaxException.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/DataDisplayFrame.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Image_and_Cursor.java — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/afghanistan_distances_alt.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/curve_template_alt.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Expr.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Image_and_Cursor.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/LiteralExpr.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/afghanistan_distances.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Image_and_Cursor.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/afghanistan_borders_alt.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/App2.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Scanner.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Token.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Literal.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Variable.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/water_fountain_alt.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Parser.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/App1.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/ConditionalExpr.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/water_fountain.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Image_and_Cursor_All/Var_ref.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Xgraph/GummyGraph.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Xgraph/GummyGraph.class — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Xgraph/SketchGraph.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Xgraph/SketchGraph.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Xgraph/SliderGraph.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/applets/Xgraph/jcm1.0-config2.jar — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/tabber.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/bootstrap.sub.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/dgage.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/knowlstyle.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/moodle.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/jquery-ui.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/tinymce.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/library_browser.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/moodle.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/images/ui-icons_777777_256x240.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/images/ui-icons_cc0000_256x240.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/images/ui-icons_777620_256x240.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/images/ui-icons_ffffff_256x240.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/images/ui-icons_555555_256x240.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/css/images/ui-icons_444444_256x240.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navProbList.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/key_hover.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/ajax-loader.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/ajax-loader-white-small.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navPrev.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/webwork_square.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/key_active.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/favicon.ico — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navNext.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/spiderweb.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/question_mark.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/key_deactive.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/webwork_logo.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navProbListGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/edit.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/webwork_rectangle.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/maa_logo.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/pibox.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/webwork_square.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navUp.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navNextGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/editorDragMath.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/ajax-loader-small.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/maa_logo_small.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/webwork_square.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/defaulticon.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/navPrevGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/webwork_transparent_logo_small.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/eqEditor.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Base.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Trigonometry.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/img_trans.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Logarithm.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Intervals.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Base4.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Logarithm1.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Parentheses.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/mathview/Others.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/dgage/slide-button.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/dgage/slide-button-active.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/dgage/background.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navProbList.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navPrev.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navNext.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navProbListGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navUp.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navNextGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_fr/navPrevGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navProbList.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navPrev.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navNext.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navProbListGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navUp.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navNextGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_es/navPrevGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navProbList.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navPrev.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navNext.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navProbListGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navUp.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navNextGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/images/images_tr/navPrevGrey.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/submithelper.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/README_js_organization — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/dnd.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/classlist_handlers.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/form_checker_hmwksets.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/json2.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/form_builder.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/teacher.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/hmwksets_handlers.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/WeBWorK.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/java_init.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/problem_grid.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/util.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/WeBWorK.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/WeBWorK-ui.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/data.json — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/api.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/classes/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/classes/webwork.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/files/teacher_Problem.js.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/files/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/files/teacher_Set.js.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/files/teacher_Library.js.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/files/WeBWorK.js.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/modules/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/modules/WeBWorK.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/index.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/favicon.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/css/main.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/css/logo.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/css/external-small.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/js/apidocs.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/js/api-search.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/js/api-filter.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/js/tabs.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/js/api-list.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/js/yui-prettify.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/img/spinner.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/vendor/prettify/CHANGES.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/vendor/prettify/prettify-min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/vendor/prettify/README.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/vendor/prettify/COPYING — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/out/assets/vendor/prettify/prettify-min.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/teacher/User.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/teacher/Browse.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/teacher/Library.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/teacher/teacher.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/teacher/Set.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/webwork_js_master/teacher/Problem.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/modernizr-2.0.6.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/tabber.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/wz_tooltip.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/knowl.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/keys/keys.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/keys/keys.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/legacy/vendor/keys/README.md — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/MathJaxConfig/mathjax-config.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/ProblemGrader/problemgrader.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/ImageView/imageview.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/ImageView/imageview.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/graphtool.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/graphtool.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/graphtool.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/HorizontalParabolaTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/CircleTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/LineTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/FillTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/VerticalParabolaTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/SelectTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/DashTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GraphTool/images/SolidTool.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/refresh24b.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/warning.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/studio24b.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/poweredbywiris.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/mathml2webwork.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/studio16.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/popup.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/plotter_loading.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/integration.ini — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/incorrect.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/uparrow24b.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/fieldset-collapsed.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/editor16w.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/percent.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/goback.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/loading.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/editor16b.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/quizzes.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/studio16b.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/correct.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/wiriseditor.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/quizzes.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/manual.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/router.xml — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/warning2.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/wirisquizzes.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/warning3.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/studio24.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/version.txt — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/editor.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/editor16.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/fieldset-expanded.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/WirisEditor/studio.gif — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/AchievementEditor/achievementeditor.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/AppletSupport/ww_applet_support.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/AppletSupport/AC_RunActiveContent.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Base64/Base64.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Problem/problem.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard.php — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard-local.php — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/package.json — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard-global.php — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard-local.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/leaderboard-global.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/src/app.relative.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/src/app-global.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Leaderboard/src/app.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/math/math.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/MathView/mv_locale_us.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/MathView/mathview.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/MathView/mathview.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/ShowHide/show_hide.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/LiveGraphics/liveGraphics.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/TagWidget/tagwidget.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/LocalStorage/localstorage.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Scaffold/scaffold.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/Scaffold/scaffold.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/InputColor/color.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/PGCodeMirror/PG.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/PGCodeMirror/PGaddons.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/apps/GatewayQuiz/gateway.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/codemirror.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/codemirror.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/PG.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/PGaddons.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/icecoder.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/material-ocean.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/xq-light.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/the-matrix.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/neo.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/lesser-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/3024-day.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/hopscotch.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/liquibyte.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/midnight.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/duotone-light.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/elegant.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/mbo.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/nord.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/material.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/ttcn.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/mdn-like.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/xq-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/base16-light.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/yonce.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/gruvbox-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/isotope.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/material-darker.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/ambiance.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/darcula.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/paraiso-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/lucario.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/erlang-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/colorforth.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/abbott.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/twilight.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/3024-night.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/vibrant-ink.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/monokai.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/idea.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/dracula.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/base16-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/zenburn.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/shadowfox.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/neat.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/blackboard.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/moxer.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/tomorrow-night-eighties.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/night.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/paraiso-light.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/eclipse.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/railscasts.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/tomorrow-night-bright.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/solarized.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/seti.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/ayu-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/panda-syntax.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/abcdef.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/duotone-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/cobalt.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/ayu-mirage.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/rubyblue.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/pastel-on-dark.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/juejin.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/ambiance-mobile.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/material-palenight.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/bespin.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/yeti.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/oceanic-next.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/theme/ssms.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/anyword-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/show-hint.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/show-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/xml-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/html-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/sql-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/css-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/hint/javascript-hint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/json-lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/coffeescript-lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/yaml-lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/lint.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/javascript-lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/css-lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/lint/html-lint.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/scroll/annotatescrollbar.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/scroll/simplescrollbars.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/scroll/simplescrollbars.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/scroll/scrollpastend.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/mode/multiplex_test.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/mode/overlay.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/mode/simple.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/mode/loadmode.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/mode/multiplex.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/merge/merge.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/merge/merge.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/comment/continuecomment.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/comment/comment.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/search/matchesonscrollbar.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/search/jump-to-line.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/search/match-highlighter.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/search/searchcursor.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/search/search.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/search/matchesonscrollbar.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/dialog/dialog.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/dialog/dialog.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/edit/continuelist.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/edit/closetag.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/edit/matchtags.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/edit/closebrackets.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/edit/matchbrackets.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/edit/trailingspace.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/wrap/hardwrap.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/xml-fold.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/foldgutter.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/brace-fold.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/comment-fold.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/foldgutter.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/markdown-fold.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/foldcode.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/fold/indent-fold.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/display/rulers.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/display/autorefresh.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/display/fullscreen.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/display/placeholder.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/display/panel.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/display/fullscreen.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/selection/selection-pointer.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/selection/active-line.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/selection/mark-selection.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/tern/tern.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/tern/worker.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/tern/tern.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/runmode/colorize.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/codemirror/addon/runmode/runmode.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/css/bootstrap.min.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/css/bootstrap-responsive.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/css/bootstrap.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/css/bootstrap-responsive.min.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/js/bootstrap.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/js/bootstrap.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/img/glyphicons-halflings.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/bootstrap/img/glyphicons-halflings-white.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/FontAwesome/css/font-awesome.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/FontAwesome/font/fontawesome-webfont.svg — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/FontAwesome/font/fontawesome-webfont.ttf — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/FontAwesome/font/fontawesome-webfont.woff — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/FontAwesome/font/fontawesome-webfont.svgz — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/FontAwesome/font/fontawesome-webfont.eot — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/jquery-1.12.4.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/jquery-ui.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/jquery-ui-1.12.1.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/jquery-ui-1.12.1/css/jquery-ui.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.nestedSortable.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.tablesorter.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jstorage.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.nestable.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.imagesloaded.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.ui.touch-punch.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.json.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/ui.tabs.closable.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.truncate.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jquery/modules/jquery.watermark.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/other/FileSaver.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/other/BlobBuilder.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/other/xdate.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/iframe-resizer/LICENSE — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/iframe-resizer/README.md — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/iframe-resizer/js/iframeResizer.map — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/iframe-resizer/js/iframeResizer.contentWindow.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/iframe-resizer/js/iframeResizer.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/iframe-resizer/js/iframeResizer.contentWindow.map — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jszip/jszip.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jszip/jszip-utils.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jszip/jszip.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/jszip/jszip-utils-ie.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/x3dom/x3dom.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/x3dom/x3dom.swf — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/x3dom/x3dom-full.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/js/vendor/x3dom/x3dom.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorIndex.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorStats.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Levels.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Syntax.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Local_Average_Attempts_Data.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorProblemSetList.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Syntax.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/IntervalNotation.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/UsesMathObjects.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Formulas10.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/PDE-notation.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Points.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Vectors.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorProblemSetDetail.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorUsersAssignedToSet.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorConfig.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorAddUsers.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Global_Usage_Data.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/instructor_links.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Global_Average_Attempts_Data.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorFileTransfer.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorUserList.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Limits.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Units.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Logarithms.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Problems.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorSendMail.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorFileManager.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Inequalities.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Units.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Angles.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorSetMaker.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorProblemSetDetail2.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Local_Usage_Data.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorScoring.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Numbers.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorPGProblemEditor.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Intervals.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Logarithms10.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Fractions.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Options.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorUserDetail.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorAssigner.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Formulas.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/no_help.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Exponents.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Grades.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Equations.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/ProblemSets.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/InstructorPreflight.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Local_Average_Status_Data.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Entering-Decimals.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/helpFiles/Global_Average_Status_Data.html — excluded root dir: lib/
+- lib/WeBWorK/htdocs/DATA/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/tmp/placeholder.md — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/math4.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/achievements.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/math4.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/math4-coloring.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/gateway.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/codeshard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/math4-overrides.css.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-red/math4-overrides.js.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/ur — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/achievements.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/math3.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/gateway.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/codeshard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/bootstrap/css/bootstrap.min.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/bootstrap/css/bootstrap.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/bootstrap/js/bootstrap.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/bootstrap/js/bootstrap.min.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/bootstrap/img/glyphicons-halflings.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math3/bootstrap/img/glyphicons-halflings-white.png — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/math4.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/simple.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/achievements.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/math4.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/gateway.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/codeshard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/math4-overrides.css.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4/math4-overrides.js.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/math4.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/simple.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/achievements.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/math4.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/gateway.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/codeshard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/math4-overrides.css.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-ar/math4-overrides.js.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/math4.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/achievements.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/math4.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/math4-coloring.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/README — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/system.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/gateway.css — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/lbtwo.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/codeshard.js — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/math4-overrides.css.dist — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/gateway.template — excluded root dir: lib/
+- lib/WeBWorK/htdocs/themes/math4-green/math4-overrides.js.dist — excluded root dir: lib/
+- lib/WeBWorK/lib/WWSafe.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/PG.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Constants.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/CourseEnvironment.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Utils.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Form.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Localize.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Debug.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Utils/Tags.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Utils/LanguageAndDirection.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Utils/AttemptsTable.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Utils/DelayedMailer.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Utils/RestrictedClosureClass.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Localize/standalone.pot — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Localize/en.po — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/Localize/heb.po — excluded root dir: lib/
+- lib/WeBWorK/lib/WeBWorK/PG/Local.pm — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/json_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/standard_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/classic_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/jwe_secure_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/nosubmit_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/single_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/static_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/practice_format.pl — excluded root dir: lib/
+- lib/WeBWorK/lib/WebworkClient/simple_format.pl — excluded root dir: lib/
+- lib/WeBWorK/conf/defaults.config — excluded root dir: lib/
+- lib/WeBWorK/conf/site.conf — excluded root dir: lib/
+- lib/RenderApp/Controller/Render.pm — excluded root dir: lib/
+- lib/RenderApp/Controller/IO.pm — excluded root dir: lib/
+- lib/RenderApp/Controller/FormatRenderedProblem.pm — excluded root dir: lib/
+- lib/RenderApp/Controller/RenderProblem.pm — excluded root dir: lib/
+- lib/RenderApp/Controller/Pages.pm — excluded root dir: lib/
+- lib/RenderApp/Model/Problem.pm — excluded root dir: lib/
+- lib/PG/LICENSE — excluded root dir: lib/
+- lib/PG/README — excluded root dir: lib/
+- lib/PG/README.md — excluded root dir: lib/
+- lib/PG/.gitignore — excluded root dir: lib/
+- lib/PG/VERSION — excluded root dir: lib/
+- lib/PG/TikZImage.pm — excluded root dir: lib/
+- lib/PG/README_maketext — excluded root dir: lib/
+- lib/PG/.perltidyrc — excluded root dir: lib/
+- lib/PG/docker/pg-no-ww.Dockerfile — excluded root dir: lib/
+- lib/PG/docker/test-docker.Dockerfile — excluded root dir: lib/
+- lib/PG/docker/README.md — excluded root dir: lib/
+- lib/PG/t/build_PG_envir.pl — excluded root dir: lib/
+- lib/PG/t/linebreak_at_commas_example.pg — excluded root dir: lib/
+- lib/PG/t/test_find_file_in_directories.pl — excluded root dir: lib/
+- lib/PG/t/README.md — excluded root dir: lib/
+- lib/PG/t/embedded.html — excluded root dir: lib/
+- lib/PG/t/contexts/trig_degrees.t — excluded root dir: lib/
+- lib/PG/t/contexts/fraction.t — excluded root dir: lib/
+- lib/PG/t/contexts/toltype_digits.t — excluded root dir: lib/
+- lib/PG/t/contexts/integer.t — excluded root dir: lib/
+- lib/PG/t/tikz_test/tikz_test3.pg — excluded root dir: lib/
+- lib/PG/t/tikz_test/tikz_test2.pg — excluded root dir: lib/
+- lib/PG/t/matrix_tableau_tests/tableau_test1.pg — excluded root dir: lib/
+- lib/PG/t/matrix_tableau_tests/matrix_test1.pg — excluded root dir: lib/
+- lib/PG/t/matrix_tableau_tests/linebreaks.pg — excluded root dir: lib/
+- lib/PG/t/matrix_tableau_tests/matrix_test2.pg — excluded root dir: lib/
+- lib/PG/t/matrix_tableau_tests/print_tableau_Test.pg — excluded root dir: lib/
+- lib/PG/t/matrix_tableau_tests/tableau_test2.pg — excluded root dir: lib/
+- lib/PG/t/embedded_files/embed-light.css — excluded root dir: lib/
+- lib/PG/t/embedded_files/highlight.pack.js — excluded root dir: lib/
+- lib/PG/t/embedded_files/css — excluded root dir: lib/
+- lib/PG/t/embedded_files/embed.js — excluded root dir: lib/
+- lib/PG/t/embedded_files/result-light.css — excluded root dir: lib/
+- lib/PG/t/embedded_files/analytics.js — excluded root dir: lib/
+- lib/PG/t/macros/pgaux.t — excluded root dir: lib/
+- lib/PG/t/macros/tableau.t — excluded root dir: lib/
+- lib/PG/t/macros/math_objects_more.t — excluded root dir: lib/
+- lib/PG/t/macros/math_objects_basics.t — excluded root dir: lib/
+- lib/PG/t/macros/basicmacros.t — excluded root dir: lib/
+- lib/PG/t/pg_test_problems/badlibraryproblems.txt — excluded root dir: lib/
+- lib/PG/t/pg_test_problems/pg_uses_cmplx_cmp.list — excluded root dir: lib/
+- lib/PG/t/pg_test_problems/goodlibraryproblems.txt — excluded root dir: lib/
+- lib/PG/t/pg_test_problems/settest_notnull_and_prettyprint/settest_notnull_and_prettyprint.def — excluded root dir: lib/
+- lib/PG/t/math_objects/factorial.t — excluded root dir: lib/
+- lib/PG/macros/contextCurrency.pl — excluded root dir: lib/
+- lib/PG/macros/contextTrigDegrees.pl — excluded root dir: lib/
+- lib/PG/macros/tableau_main_subroutines.pl — excluded root dir: lib/
+- lib/PG/macros/draggableSubsets.pl — excluded root dir: lib/
+- lib/PG/macros/compoundProblem2.pl — excluded root dir: lib/
+- lib/PG/macros/parserCustomization.pl — excluded root dir: lib/
+- lib/PG/macros/PGmiscevaluators.pl — excluded root dir: lib/
+- lib/PG/macros/tableau.pl — excluded root dir: lib/
+- lib/PG/macros/parserAutoStrings.pl — excluded root dir: lib/
+- lib/PG/macros/problemPanic.pl — excluded root dir: lib/
+- lib/PG/macros/PGdiffeqmacros.pl — excluded root dir: lib/
+- lib/PG/macros/parserParametricPlane.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedNumeric.pl — excluded root dir: lib/
+- lib/PG/macros/PGanalyzeGraph.pl — excluded root dir: lib/
+- lib/PG/macros/contextAlternateDecimal.pl — excluded root dir: lib/
+- lib/PG/macros/PGasu.pl — excluded root dir: lib/
+- lib/PG/macros/PGfunctionevaluators.pl — excluded root dir: lib/
+- lib/PG/macros/PG.pl — excluded root dir: lib/
+- lib/PG/macros/sage.pl — excluded root dir: lib/
+- lib/PG/macros/contextReaction.pl — excluded root dir: lib/
+- lib/PG/macros/answerCustom.pl — excluded root dir: lib/
+- lib/PG/macros/parserRoot.pl — excluded root dir: lib/
+- lib/PG/macros/PG_module_list.pl — excluded root dir: lib/
+- lib/PG/macros/contextABCD.pl — excluded root dir: lib/
+- lib/PG/macros/parserDifferenceQuotient.pl — excluded root dir: lib/
+- lib/PG/macros/contextPiecewiseFunction.pl — excluded root dir: lib/
+- lib/PG/macros/unionTables.pl — excluded root dir: lib/
+- lib/PG/macros/problemRandomize.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedPoint.pl — excluded root dir: lib/
+- lib/PG/macros/contextTypeset.pl — excluded root dir: lib/
+- lib/PG/macros/AppletObjects.pl — excluded root dir: lib/
+- lib/PG/macros/StdConst.pg — excluded root dir: lib/
+- lib/PG/macros/contextCongruence.pl — excluded root dir: lib/
+- lib/PG/macros/parserRadioButtons.pl — excluded root dir: lib/
+- lib/PG/macros/PGgraphmacros.pl — excluded root dir: lib/
+- lib/PG/macros/PGML.pl — excluded root dir: lib/
+- lib/PG/macros/parserAssignment.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedPowers.pl — excluded root dir: lib/
+- lib/PG/macros/contextScientificNotation.pl — excluded root dir: lib/
+- lib/PG/macros/parserFunctionPrime.pl — excluded root dir: lib/
+- lib/PG/macros/contextInteger.pl — excluded root dir: lib/
+- lib/PG/macros/parserMultiPart.pl — excluded root dir: lib/
+- lib/PG/macros/PGchoicemacros.pl — excluded root dir: lib/
+- lib/PG/macros/alignedChoice.pl — excluded root dir: lib/
+- lib/PG/macros/extraAnswerEvaluators.pl — excluded root dir: lib/
+- lib/PG/macros/parserQuotedString.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedComplex.pl — excluded root dir: lib/
+- lib/PG/macros/weightedGrader.pl — excluded root dir: lib/
+- lib/PG/macros/PGlateximage.pl — excluded root dir: lib/
+- lib/PG/macros/PGmorematrixmacros.pl — excluded root dir: lib/
+- lib/PG/macros/parserGraphTool.pl — excluded root dir: lib/
+- lib/PG/macros/contextPermutationUBC.pl — excluded root dir: lib/
+- lib/PG/macros/PGstandard.pl — excluded root dir: lib/
+- lib/PG/macros/contextInequalitySetBuilder.pl — excluded root dir: lib/
+- lib/PG/macros/customizeLaTeX.pl — excluded root dir: lib/
+- lib/PG/macros/PGtikz.pl — excluded root dir: lib/
+- lib/PG/macros/PGpolynomialmacros.pl — excluded root dir: lib/
+- lib/PG/macros/PGcommonFunctions.pl — excluded root dir: lib/
+- lib/PG/macros/contextOrdering.pl — excluded root dir: lib/
+- lib/PG/macros/answerVariableList.pl — excluded root dir: lib/
+- lib/PG/macros/LiveGraphics3D.pl — excluded root dir: lib/
+- lib/PG/macros/compoundProblem.pl — excluded root dir: lib/
+- lib/PG/macros/PGinfo.pl — excluded root dir: lib/
+- lib/PG/macros/parserLinearInequality.pl — excluded root dir: lib/
+- lib/PG/macros/PGnumericevaluators.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedVector.pl — excluded root dir: lib/
+- lib/PG/macros/PGanswermacros.pl — excluded root dir: lib/
+- lib/PG/macros/contextPartition.pl — excluded root dir: lib/
+- lib/PG/macros/contextString.pl — excluded root dir: lib/
+- lib/PG/macros/contextTF.pl — excluded root dir: lib/
+- lib/PG/macros/PGbasicmacros.pl — excluded root dir: lib/
+- lib/PG/macros/PGcourse.pl — excluded root dir: lib/
+- lib/PG/macros/PGstatisticsmacros.pl — excluded root dir: lib/
+- lib/PG/macros/contextLeadingZero.pl — excluded root dir: lib/
+- lib/PG/macros/parserFunction.pl — excluded root dir: lib/
+- lib/PG/macros/contextPolynomialFactors.pl — excluded root dir: lib/
+- lib/PG/macros/contextComplexExtras.pl — excluded root dir: lib/
+- lib/PG/macros/bizarroArithmetic.pl — excluded root dir: lib/
+- lib/PG/macros/contextArbitraryString.pl — excluded root dir: lib/
+- lib/PG/macros/MatrixReduce.pl — excluded root dir: lib/
+- lib/PG/macros/Parser.pl — excluded root dir: lib/
+- lib/PG/macros/problemPreserveAnswers.pl — excluded root dir: lib/
+- lib/PG/macros/contextPermutation.pl — excluded root dir: lib/
+- lib/PG/macros/PGgraders.pl — excluded root dir: lib/
+- lib/PG/macros/parserPopUp.pl — excluded root dir: lib/
+- lib/PG/macros/StdUnits.pg — excluded root dir: lib/
+- lib/PG/macros/contextRationalFunction.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedPolynomial.pl — excluded root dir: lib/
+- lib/PG/macros/parserNumberWithUnits.pl — excluded root dir: lib/
+- lib/PG/macros/unionLists.pl — excluded root dir: lib/
+- lib/PG/macros/MatrixUnits.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedRadical.pl — excluded root dir: lib/
+- lib/PG/macros/PGcomplexmacros2.pl — excluded root dir: lib/
+- lib/PG/macros/parserOneOf.pl — excluded root dir: lib/
+- lib/PG/macros/parserFormulaUpToConstant.pl — excluded root dir: lib/
+- lib/PG/macros/PGauxiliaryFunctions.pl — excluded root dir: lib/
+- lib/PG/macros/contextInequalities.pl — excluded root dir: lib/
+- lib/PG/macros/answerDiscussion.pl — excluded root dir: lib/
+- lib/PG/macros/parserMultiAnswer.pl — excluded root dir: lib/
+- lib/PG/macros/PGstatisticsGraphMacros.pl — excluded root dir: lib/
+- lib/PG/macros/contextIntegerFunctions.pl — excluded root dir: lib/
+- lib/PG/macros/CanvasObject.pl — excluded root dir: lib/
+- lib/PG/macros/scaffold.pl — excluded root dir: lib/
+- lib/PG/macros/contextAlternateIntervals.pl — excluded root dir: lib/
+- lib/PG/macros/PG_CAPAmacros.pl — excluded root dir: lib/
+- lib/PG/macros/parserSolutionFor.pl — excluded root dir: lib/
+- lib/PG/macros/parserImplicitEquation.pl — excluded root dir: lib/
+- lib/PG/macros/PGmatrixmacros.pl — excluded root dir: lib/
+- lib/PG/macros/LinearProgramming.pl — excluded root dir: lib/
+- lib/PG/macros/parserWordCompletion.pl — excluded root dir: lib/
+- lib/PG/macros/parserFormulaAnyVar.pl — excluded root dir: lib/
+- lib/PG/macros/parserParametricLine.pl — excluded root dir: lib/
+- lib/PG/macros/Value.pl — excluded root dir: lib/
+- lib/PG/macros/contextPercent.pl — excluded root dir: lib/
+- lib/PG/macros/niceTables.pl — excluded root dir: lib/
+- lib/PG/macros/quickMatrixEntry.pl — excluded root dir: lib/
+- lib/PG/macros/MathObjects.pl — excluded root dir: lib/
+- lib/PG/macros/MatrixCheckers.pl — excluded root dir: lib/
+- lib/PG/macros/text2PG.pl — excluded root dir: lib/
+- lib/PG/macros/PGcomplexmacros.pl — excluded root dir: lib/
+- lib/PG/macros/parserImplicitPlane.pl — excluded root dir: lib/
+- lib/PG/macros/contextMatrixExtras.pl — excluded root dir: lib/
+- lib/PG/macros/answerHints.pl — excluded root dir: lib/
+- lib/PG/macros/PGsequentialmacros.pl — excluded root dir: lib/
+- lib/PG/macros/contextLimitedFactor.pl — excluded root dir: lib/
+- lib/PG/macros/PGtextevaluators.pl — excluded root dir: lib/
+- lib/PG/macros/parserVectorUtils.pl — excluded root dir: lib/
+- lib/PG/macros/PGnumericalmacros.pl — excluded root dir: lib/
+- lib/PG/macros/source.pl — excluded root dir: lib/
+- lib/PG/macros/PGstringevaluators.pl — excluded root dir: lib/
+- lib/PG/macros/contextPeriodic.pl — excluded root dir: lib/
+- lib/PG/macros/parserPrime.pl — excluded root dir: lib/
+- lib/PG/macros/PGessaymacros.pl — excluded root dir: lib/
+- lib/PG/macros/parserFormulaWithUnits.pl — excluded root dir: lib/
+- lib/PG/macros/compoundProblem5.pl — excluded root dir: lib/
+- lib/PG/macros/answerComposition.pl — excluded root dir: lib/
+- lib/PG/macros/contextComplexJ.pl — excluded root dir: lib/
+- lib/PG/macros/RserveClient.pl — excluded root dir: lib/
+- lib/PG/macros/contextFraction.pl — excluded root dir: lib/
+- lib/PG/macros/draggableProof.pl — excluded root dir: lib/
+- lib/PG/htdocs/third-party-assets.json — excluded root dir: lib/
+- lib/PG/htdocs/package.json — excluded root dir: lib/
+- lib/PG/htdocs/generate-assets.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/ImageView/imageview.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/ImageView/imageview.css — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/graphtool.scss — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/cubictool.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/graphtool.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/quadratictool.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/pointtool.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/HorizontalParabolaTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/QuadraticTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/CircleTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/CubicTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/LineTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/FillTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/VerticalParabolaTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/SelectTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/DashTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/SolidTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/GraphTool/images/PointTool.svg — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/refresh24b.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/warning.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/studio24b.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/poweredbywiris.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/mathml2webwork.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/studio16.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/popup.html — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/integration.ini — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/incorrect.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/uparrow24b.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/fieldset-collapsed.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/editor16w.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/percent.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/loading.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/editor16b.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/quizzes.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/studio16b.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/correct.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/wiriseditor.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/quizzes.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/manual.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/router.xml — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/warning2.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/wirisquizzes.css — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/warning3.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/studio24.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/version.txt — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/editor.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/editor16.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/fieldset-expanded.png — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/WirisEditor/studio.gif — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/MathQuill/mqeditor.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/MathQuill/mqeditor.css — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/AppletSupport/ww_applet_support.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/Base64/Base64.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/Problem/problem.scss — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/Knowls/knowl.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/Knowls/knowl.css — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/MathView/mv_locale_us.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/MathView/mathview.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/MathView/mathview.css — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/Scaffold/scaffold.scss — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/Scaffold/scaffold.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/InputColor/color.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/DragNDrop/dragndrop.js — excluded root dir: lib/
+- lib/PG/htdocs/js/apps/DragNDrop/dragndrop.css — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Syntax.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Syntax.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/IntervalNotation.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Formulas10.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/PDE-notation.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Points.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Vectors.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Limits.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Units.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Logarithms.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Inequalities.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Units.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Angles.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Numbers.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Intervals.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Logarithms10.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Fractions.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Formulas.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Exponents.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Equations.html — excluded root dir: lib/
+- lib/PG/htdocs/helpFiles/Entering-Decimals.html — excluded root dir: lib/
+- lib/PG/.github/FUNDING.yml — excluded root dir: lib/
+- lib/PG/.github/workflows/coverage.yml — excluded root dir: lib/
+- lib/PG/lib/PGalias.pm — excluded root dir: lib/
+- lib/PG/lib/LimitedPolynomial.pm — excluded root dir: lib/
+- lib/PG/lib/Matrix.pm — excluded root dir: lib/
+- lib/PG/lib/MatrixReal1.pm — excluded root dir: lib/
+- lib/PG/lib/Fraction.pm — excluded root dir: lib/
+- lib/PG/lib/Units.pm — excluded root dir: lib/
+- lib/PG/lib/List.pm — excluded root dir: lib/
+- lib/PG/lib/Regression.pm — excluded root dir: lib/
+- lib/PG/lib/Applet.pm — excluded root dir: lib/
+- lib/PG/lib/Rserve.pm — excluded root dir: lib/
+- lib/PG/lib/Fun.pm — excluded root dir: lib/
+- lib/PG/lib/AnswerHash.pm — excluded root dir: lib/
+- lib/PG/lib/Multiple.pm — excluded root dir: lib/
+- lib/PG/lib/Circle.pm — excluded root dir: lib/
+- lib/PG/lib/AnswerIO.pm — excluded root dir: lib/
+- lib/PG/lib/PowerPolynomial.pm — excluded root dir: lib/
+- lib/PG/lib/PGresource.pm — excluded root dir: lib/
+- lib/PG/lib/ChoiceList.pm — excluded root dir: lib/
+- lib/PG/lib/WWSafe.pm — excluded root dir: lib/
+- lib/PG/lib/VectorField.pm — excluded root dir: lib/
+- lib/PG/lib/WWPlot.pm — excluded root dir: lib/
+- lib/PG/lib/Chromatic.pm — excluded root dir: lib/
+- lib/PG/lib/Distributions.pm — excluded root dir: lib/
+- lib/PG/lib/PGloadfiles.pm — excluded root dir: lib/
+- lib/PG/lib/Parser.pm — excluded root dir: lib/
+- lib/PG/lib/Label.pm — excluded root dir: lib/
+- lib/PG/lib/Complex1.pm — excluded root dir: lib/
+- lib/PG/lib/DragNDrop.pm — excluded root dir: lib/
+- lib/PG/lib/PGcore.pm — excluded root dir: lib/
+- lib/PG/lib/ww_strict.pm — excluded root dir: lib/
+- lib/PG/lib/Select.pm — excluded root dir: lib/
+- lib/PG/lib/Statistics.pm — excluded root dir: lib/
+- lib/PG/lib/PGrandom.pm — excluded root dir: lib/
+- lib/PG/lib/Value.pm — excluded root dir: lib/
+- lib/PG/lib/Hermite.pm — excluded root dir: lib/
+- lib/PG/lib/LaTeXImage.pm — excluded root dir: lib/
+- lib/PG/lib/Match.pm — excluded root dir: lib/
+- lib/PG/lib/PGUtil.pm — excluded root dir: lib/
+- lib/PG/lib/PGresponsegroup.pm — excluded root dir: lib/
+- lib/PG/lib/PGEnvironment.pm — excluded root dir: lib/
+- lib/PG/lib/AlgParser.pm — excluded root dir: lib/
+- lib/PG/lib/Complex.pm — excluded root dir: lib/
+- lib/PG/lib/PGanswergroup.pm — excluded root dir: lib/
+- lib/PG/lib/Polynomial.pm — excluded root dir: lib/
+- lib/PG/lib/chromatic/color.c — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/EquationCache.pm — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/PG/IO.pm — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/PG/Translator.pm — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/PG/ImageGenerator.pm — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/PG/IO/WW1.pm — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/PG/IO/Daemon2.pm — excluded root dir: lib/
+- lib/PG/lib/WeBWorK/PG/IO/WW2.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Matrix.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Formula.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Interval.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Infinity.pm — excluded root dir: lib/
+- lib/PG/lib/Value/List.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Vector.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Real.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Context.pm — excluded root dir: lib/
+- lib/PG/lib/Value/AnswerChecker.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Point.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Set.pm — excluded root dir: lib/
+- lib/PG/lib/Value/WeBWorK.pm — excluded root dir: lib/
+- lib/PG/lib/Value/String.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Union.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Complex.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Context/Lists.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Context/Diagnostics.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Context/Flags.pm — excluded root dir: lib/
+- lib/PG/lib/Value/Context/Data.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Number.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/UOP.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Variable.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Differentiation.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/String.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Value.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Constant.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Item.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Complex.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Functions.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Reduction.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Constants.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Variables.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Parens.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Default.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Operators.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Context/Strings.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/cross.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/subtract.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/add.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/underscore.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/multiply.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/comma.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/divide.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/equality.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/undefined.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/dot.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/union.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/BOP/power.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy/LimitedComplex.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy/LimitedNumeric.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy/README — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy/Numeric.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy/PGcomplexmacros.pl — excluded root dir: lib/
+- lib/PG/lib/Parser/Legacy/NumberWithUnits.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/trig.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/vector.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/hyperbolic.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/undefined.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/numeric.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/numeric2.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/Function/complex.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/Matrix.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/Interval.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/List.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/Vector.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/AbsoluteValue.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/Point.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/List/Set.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/UOP/minus.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/UOP/plus.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/UOP/factorial.pm — excluded root dir: lib/
+- lib/PG/lib/Parser/UOP/undefined.pm — excluded root dir: lib/
+- lib/PG/conf/pg_defaults.dist.yml — excluded root dir: lib/
+- templates/.DS_Store — excluded by glob: .DS_Store
+- .git/AUTO_MERGE — excluded root dir: .git/
+- .git/ORIG_HEAD — excluded root dir: .git/
+- .git/config — excluded root dir: .git/
+- .git/HEAD — excluded root dir: .git/
+- .git/description — excluded root dir: .git/
+- .git/index — excluded root dir: .git/
+- .git/packed-refs — excluded root dir: .git/
+- .git/COMMIT_EDITMSG — excluded root dir: .git/
+- .git/FETCH_HEAD — excluded root dir: .git/
+- .git/objects/57/8f8494e42eecde65152c5e5b7feca9ba32333d — excluded root dir: .git/
+- .git/objects/3d/0a80b7aa8a74ca9fe6e5f30a354b58aa1506c5 — excluded root dir: .git/
+- .git/objects/9d/ca7a9d8684132c7315388b1832b64750192310 — excluded root dir: .git/
+- .git/objects/d7/ec76b3c1b50c0274c14382c6c049384a1dc13f — excluded root dir: .git/
+- .git/objects/c0/87a0e5ebaaf52db91bf6d5ad4a4d150d9aa68d — excluded root dir: .git/
+- .git/objects/e3/6814a60f3f381113328481700a4be66075b736 — excluded root dir: .git/
+- .git/objects/pack/pack-84d6b89851f8053c0641dad7d02bdd8726dc834e.pack — excluded root dir: .git/
+- .git/objects/pack/pack-b80481f99059483f9e4435cce4fa376f594c443d.rev — excluded root dir: .git/
+- .git/objects/pack/pack-7d48ea5325ee96d5cce27838a840a9c7ca202e27.rev — excluded root dir: .git/
+- .git/objects/pack/pack-eff66f11a628b6ce4eb3597c5b68ea9322e1172b.idx — excluded root dir: .git/
+- .git/objects/pack/pack-2d0267c4547f7796e815140987ed39b6a721a863.rev — excluded root dir: .git/
+- .git/objects/pack/pack-fd0b9bbbe7dc6e4df7af041fce953140b3d80195.idx — excluded root dir: .git/
+- .git/objects/pack/pack-f8db1984130cae05bc608922bce94e5c8833198f.idx — excluded root dir: .git/
+- .git/objects/pack/pack-69d77847bc1bcd9c343867f7eba4444578930835.idx — excluded root dir: .git/
+- .git/objects/pack/pack-72fd34ed8518c9fcd5f2e17d2e9ced2ec52d212b.pack — excluded root dir: .git/
+- .git/objects/pack/pack-84d6b89851f8053c0641dad7d02bdd8726dc834e.idx — excluded root dir: .git/
+- .git/objects/pack/pack-f8261ff8ed7e17c6890f315a89d7590522fc7529.rev — excluded root dir: .git/
+- .git/objects/pack/pack-5d0843bbe1abe8aaf266c1c538954a0afb291eda.idx — excluded root dir: .git/
+- .git/objects/pack/pack-0198410a000830de6d0542bc46de6abbec40acd3.pack — excluded root dir: .git/
+- .git/objects/pack/pack-8f2e19d7dd38cc60a9a262120fc399abfa3409cc.idx — excluded root dir: .git/
+- .git/objects/pack/pack-28c757ff2c60ed8761e3486527aeb27dfb64d90c.rev — excluded root dir: .git/
+- .git/objects/pack/pack-dbb63e33f79272b28a24c1052dc866a96255faea.idx — excluded root dir: .git/
+- .git/objects/pack/pack-dbb63e33f79272b28a24c1052dc866a96255faea.pack — excluded root dir: .git/
+- .git/objects/pack/pack-7d48ea5325ee96d5cce27838a840a9c7ca202e27.pack — excluded root dir: .git/
+- .git/objects/pack/pack-df68ff3e52aa18fededecbd26bdfe8989034e6e1.rev — excluded root dir: .git/
+- .git/objects/pack/pack-48b7ba1646503b2f3cde08e5f6e600bae74cddd2.rev — excluded root dir: .git/
+- .git/objects/pack/pack-f8261ff8ed7e17c6890f315a89d7590522fc7529.pack — excluded root dir: .git/
+- .git/objects/pack/pack-91f49af4000ddc17631e525a1665fe3f538095e7.rev — excluded root dir: .git/
+- .git/objects/pack/pack-5d0843bbe1abe8aaf266c1c538954a0afb291eda.pack — excluded root dir: .git/
+- .git/objects/pack/pack-1e327f2670ae4b4158ffaeb7b74a2ca4b1e6f4b8.pack — excluded root dir: .git/
+- .git/objects/pack/pack-eff66f11a628b6ce4eb3597c5b68ea9322e1172b.pack — excluded root dir: .git/
+- .git/objects/pack/pack-0198410a000830de6d0542bc46de6abbec40acd3.idx — excluded root dir: .git/
+- .git/objects/pack/pack-3ce17f8176856ef9a88d74c152e09e17a5efe6c0.idx — excluded root dir: .git/
+- .git/objects/pack/pack-28c757ff2c60ed8761e3486527aeb27dfb64d90c.pack — excluded root dir: .git/
+- .git/objects/pack/pack-8f2e19d7dd38cc60a9a262120fc399abfa3409cc.pack — excluded root dir: .git/
+- .git/objects/pack/pack-1e327f2670ae4b4158ffaeb7b74a2ca4b1e6f4b8.rev — excluded root dir: .git/
+- .git/objects/pack/pack-2b537eec764fb87cc3e4b6be75449615c6d58699.rev — excluded root dir: .git/
+- .git/objects/pack/pack-db3c3e724a4bd0733b7a542e544eae615ffe1324.rev — excluded root dir: .git/
+- .git/objects/pack/pack-72fd34ed8518c9fcd5f2e17d2e9ced2ec52d212b.rev — excluded root dir: .git/
+- .git/objects/pack/pack-db3c3e724a4bd0733b7a542e544eae615ffe1324.pack — excluded root dir: .git/
+- .git/objects/pack/pack-f8db1984130cae05bc608922bce94e5c8833198f.pack — excluded root dir: .git/
+- .git/objects/pack/pack-48b7ba1646503b2f3cde08e5f6e600bae74cddd2.pack — excluded root dir: .git/
+- .git/objects/pack/pack-69d77847bc1bcd9c343867f7eba4444578930835.rev — excluded root dir: .git/
+- .git/objects/pack/pack-84d6b89851f8053c0641dad7d02bdd8726dc834e.rev — excluded root dir: .git/
+- .git/objects/pack/pack-f8261ff8ed7e17c6890f315a89d7590522fc7529.idx — excluded root dir: .git/
+- .git/objects/pack/pack-b80481f99059483f9e4435cce4fa376f594c443d.pack — excluded root dir: .git/
+- .git/objects/pack/pack-5d0843bbe1abe8aaf266c1c538954a0afb291eda.rev — excluded root dir: .git/
+- .git/objects/pack/pack-b80481f99059483f9e4435cce4fa376f594c443d.idx — excluded root dir: .git/
+- .git/objects/pack/pack-2d0267c4547f7796e815140987ed39b6a721a863.pack — excluded root dir: .git/
+- .git/objects/pack/pack-7d48ea5325ee96d5cce27838a840a9c7ca202e27.idx — excluded root dir: .git/
+- .git/objects/pack/pack-eff66f11a628b6ce4eb3597c5b68ea9322e1172b.rev — excluded root dir: .git/
+- .git/objects/pack/pack-fd0b9bbbe7dc6e4df7af041fce953140b3d80195.rev — excluded root dir: .git/
+- .git/objects/pack/pack-2d0267c4547f7796e815140987ed39b6a721a863.idx — excluded root dir: .git/
+- .git/objects/pack/pack-f8db1984130cae05bc608922bce94e5c8833198f.rev — excluded root dir: .git/
+- .git/objects/pack/pack-df68ff3e52aa18fededecbd26bdfe8989034e6e1.idx — excluded root dir: .git/
+- .git/objects/pack/pack-48b7ba1646503b2f3cde08e5f6e600bae74cddd2.idx — excluded root dir: .git/
+- .git/objects/pack/pack-69d77847bc1bcd9c343867f7eba4444578930835.pack — excluded root dir: .git/
+- .git/objects/pack/pack-91f49af4000ddc17631e525a1665fe3f538095e7.idx — excluded root dir: .git/
+- .git/objects/pack/pack-df68ff3e52aa18fededecbd26bdfe8989034e6e1.pack — excluded root dir: .git/
+- .git/objects/pack/pack-28c757ff2c60ed8761e3486527aeb27dfb64d90c.idx — excluded root dir: .git/
+- .git/objects/pack/pack-8f2e19d7dd38cc60a9a262120fc399abfa3409cc.rev — excluded root dir: .git/
+- .git/objects/pack/pack-dbb63e33f79272b28a24c1052dc866a96255faea.rev — excluded root dir: .git/
+- .git/objects/pack/pack-3ce17f8176856ef9a88d74c152e09e17a5efe6c0.pack — excluded root dir: .git/
+- .git/objects/pack/pack-fd0b9bbbe7dc6e4df7af041fce953140b3d80195.pack — excluded root dir: .git/
+- .git/objects/pack/pack-0198410a000830de6d0542bc46de6abbec40acd3.rev — excluded root dir: .git/
+- .git/objects/pack/pack-3ce17f8176856ef9a88d74c152e09e17a5efe6c0.rev — excluded root dir: .git/
+- .git/objects/pack/pack-72fd34ed8518c9fcd5f2e17d2e9ced2ec52d212b.idx — excluded root dir: .git/
+- .git/objects/pack/pack-91f49af4000ddc17631e525a1665fe3f538095e7.pack — excluded root dir: .git/
+- .git/objects/pack/pack-1e327f2670ae4b4158ffaeb7b74a2ca4b1e6f4b8.idx — excluded root dir: .git/
+- .git/objects/pack/pack-2b537eec764fb87cc3e4b6be75449615c6d58699.idx — excluded root dir: .git/
+- .git/objects/pack/pack-2b537eec764fb87cc3e4b6be75449615c6d58699.pack — excluded root dir: .git/
+- .git/objects/pack/pack-db3c3e724a4bd0733b7a542e544eae615ffe1324.idx — excluded root dir: .git/
+- .git/objects/7e/de824c146ce569d143cb565100cee28a3a8de9 — excluded root dir: .git/
+- .git/objects/10/190b7e48a0d3bf855cf87a6bb0d7534bfc2de8 — excluded root dir: .git/
+- .git/objects/75/fae38e626ff39e89b297628d17e6687c904151 — excluded root dir: .git/
+- .git/objects/2f/670c9ca6f393fc51ebecc02c865205ad7bf8af — excluded root dir: .git/
+- .git/objects/2f/2384b6cc460d175b149afe5e1ce97ad33ced5b — excluded root dir: .git/
+- .git/objects/6b/7189e4c4646eec861da91629a25e3f064ae94b — excluded root dir: .git/
+- .git/objects/09/9a6395b9de8ab5ddd7039a30c003a29728c4a0 — excluded root dir: .git/
+- .git/objects/info/commit-graph — excluded root dir: .git/
+- .git/objects/info/packs — excluded root dir: .git/
+- .git/objects/98/58115f3fa5381ae4bc7f5080876e7a71926e3d — excluded root dir: .git/
+- .git/objects/30/e8caf1c59f8f8acc388bafe4bde43d734b8f93 — excluded root dir: .git/
+- .git/objects/d3/906739153378dc8c9173237530dc72a080b7f9 — excluded root dir: .git/
+- .git/objects/dd/78ba430f42c92a2914a1e33dab7acc4e798c92 — excluded root dir: .git/
+- .git/objects/41/b17c9edc6a6eb481094f3ef187d86b434fab24 — excluded root dir: .git/
+- .git/objects/77/338bd2737ab047dc3033f066456ac18c076934 — excluded root dir: .git/
+- .git/objects/48/635ff5b7ede8b6790bedb69a40a60c8176f89a — excluded root dir: .git/
+- .git/objects/1e/aa28e9c06c7e32da1aa8aec480a0d8b698edf2 — excluded root dir: .git/
+- .git/objects/24/ddea7bc8acd2f54fe2a7932489669ee38869f2 — excluded root dir: .git/
+- .git/objects/15/878cf68572298cece4b20a5e79dd7a7a0481af — excluded root dir: .git/
+- .git/info/exclude — excluded root dir: .git/
+- .git/info/refs — excluded root dir: .git/
+- .git/logs/HEAD — excluded root dir: .git/
+- .git/logs/refs/heads/master — excluded root dir: .git/
+- .git/logs/refs/remotes/origin/HEAD — excluded root dir: .git/
+- .git/logs/refs/remotes/origin/voss-docker-only — excluded root dir: .git/
+- .git/logs/refs/remotes/origin/master — excluded root dir: .git/
+- .git/logs/refs/remotes/origin/sync/upstream-main — excluded root dir: .git/
+- .git/hooks/commit-msg.sample — excluded root dir: .git/
+- .git/hooks/pre-rebase.sample — excluded root dir: .git/
+- .git/hooks/sendemail-validate.sample — excluded root dir: .git/
+- .git/hooks/pre-commit.sample — excluded root dir: .git/
+- .git/hooks/applypatch-msg.sample — excluded root dir: .git/
+- .git/hooks/fsmonitor-watchman.sample — excluded root dir: .git/
+- .git/hooks/pre-receive.sample — excluded root dir: .git/
+- .git/hooks/prepare-commit-msg.sample — excluded root dir: .git/
+- .git/hooks/post-update.sample — excluded root dir: .git/
+- .git/hooks/pre-merge-commit.sample — excluded root dir: .git/
+- .git/hooks/pre-applypatch.sample — excluded root dir: .git/
+- .git/hooks/pre-push.sample — excluded root dir: .git/
+- .git/hooks/update.sample — excluded root dir: .git/
+- .git/hooks/push-to-checkout.sample — excluded root dir: .git/
+- .git/refs/heads/master — excluded root dir: .git/
+- .git/refs/remotes/origin/HEAD — excluded root dir: .git/
+- .git/refs/remotes/origin/voss-docker-only — excluded root dir: .git/
+- .git/refs/remotes/origin/master — excluded root dir: .git/
+- .git/refs/remotes/origin/sync/upstream-main — excluded root dir: .git/
+
+### Workflow gated
+- (none)
+
+### Target-only kept (not deleted by default)
+- .gitmodules
+- PORT_NOTES.md
+
+
+## Upstream Preservation Check (Run 1)
+
+- Upstream-only files missing from target (restored): 33
+- Files that differ between upstream and target: 18
+
+### Restored upstream-only files
+- .github/workflows/createContainer.yml
+- Dockerfile_with_OPL
+- conf/pg_config.yml
+- k8/Ingress.yml
+- k8/README.md
+- k8/Renderer.yaml
+- public/css/bootstrap.scss
+- public/css/crt-display.css
+- public/css/filebrowser.css
+- public/css/navbar.css
+- public/css/opl-flex.css
+- public/css/rtl.css
+- public/css/tags.css
+- public/css/twocolumn.css
+- public/css/typing-sim.css
+- public/generate-assets.js
+- public/images/defaulticon.png
+- public/images/favicon.ico
+- public/images/webwork-logo-65.png
+- public/images/webwork_logo.svg
+- public/js/apps/CSSMessage/css-message.js
+- public/js/apps/MathJaxConfig/mathjax-config.js
+- public/js/apps/Problem/problem.js
+- public/js/apps/Problem/submithelper.js
+- public/js/filebrowser.js
+- public/js/navbar.js
+- public/js/tags.js
+- public/package-lock.json
+- public/package.json
+- templates/RPCRenderFormats/default.html.ep
+- templates/RPCRenderFormats/default.json.ep
+- templates/RPCRenderFormats/ptx.html.ep
+- tmp/.gitkeep
+
+### Upstream vs target content differences (review for keep/merge)
+- .dockerignore (also differs from master)
+- .gitattributes (also differs from master)
+- .gitignore (also differs from master)
+- Dockerfile (also differs from master)
+- README.md (also differs from master)
+- docs/make_translation_files.md (also differs from master)
+- render_app.conf.dist (also differs from master)
+- script/render_app (also differs from master)
+- templates/columns/editorIframe.html.ep (also differs from master)
+- templates/columns/editorUI.html.ep (also differs from master)
+- templates/columns/filebrowser.html.ep (also differs from master)
+- templates/columns/oplIframe.html.ep (also differs from master)
+- templates/columns/tags.html.ep (also differs from master)
+- templates/exception.html.ep (also differs from master)
+- templates/layouts/navbar.html.ep (also differs from master)
+- templates/pages/flex.html.ep (also differs from master)
+- templates/pages/oplUI.html.ep (also differs from master)
+- templates/pages/twocolumn.html.ep (also differs from master)
+
+
+## Preservation Policy (Do Not Lose Upstream Value)
+
+Goal
+
+Merge the best of both repos. Do not accidentally throw away useful upstream (openwebwork/renderer) files just because they are not present in master-link.
+
+Hard Rules
+- No deletions in the target by default.
+- Target-only files stay unless explicitly approved for removal by the User.
+- If master-link would overwrite a target file, the upstream version must be preserved first (either as a sibling backup file or in a dedicated preservation directory), then the master version may be applied.
+
+Safe Overlay Strategy (Codex Actions)
+
+When porting from master-link into the target:
+1. Master-only files
+- Copy into target.
+- Never delete any upstream file to “make room.”
+2. Files present in both, contents differ
+- Before overwriting the target file, preserve the upstream version:
+- Create preserve/upstream/<relative_path> and copy the current target file there.
+- Record the preservation in PORT_NOTES.md.
+- Then copy the master-link version into place.
+3. Target-only files
+- Keep unchanged.
+- Record them as “upstream-only retained” in PORT_NOTES.md for later review.
+
+Optional Later Cleanup (User-Driven Only)
+
+If the User wants cleanup later, it must be a separate pass and separate commits:
+- Build a shortlist of “candidate removals” based on clear criteria (generated artifacts, duplicated vendor bundles, obsolete scripts).
+- Present the list to the User.
+- Only then delete, using git rm in a separate user-run script section.
+
+Deliverables Update
+
+Codex must additionally generate:
+1. PRESERVE_INDEX.txt
+- Line format: <relative_path> -> preserve/upstream/<relative_path>
+- Includes every file that was preserved because it was overwritten.
+2. TARGET_ONLY_RETAINED.txt
+- Sorted list of files that exist in target but not in master-link (excluding lib/), kept as-is.
+3. MASTER_ONLY_IMPORTED.txt
+- Sorted list of files imported from master-link into target.
+
+Git Script Update
+
+codex_git_plan.sh must:
+- Treat preserve/upstream/** as normal tracked files and commit them alongside their corresponding overwrite commit (same file-level commit), so preservation and overwrite stay linked.
+- Never delete upstream-only files.
+- Never run any cleanup step unless DO_CLEANUP=1 (default 0).
+
+
+## Preservation Actions (Run 1)
+
+- Preserved upstream files before overwrite: 18
+
+### Preserved files (upstream snapshots)
+- .dockerignore
+- .gitattributes
+- .gitignore
+- Dockerfile
+- README.md
+- docs/make_translation_files.md
+- render_app.conf.dist
+- script/render_app
+- templates/columns/editorIframe.html.ep
+- templates/columns/editorUI.html.ep
+- templates/columns/filebrowser.html.ep
+- templates/columns/oplIframe.html.ep
+- templates/columns/tags.html.ep
+- templates/exception.html.ep
+- templates/layouts/navbar.html.ep
+- templates/pages/flex.html.ep
+- templates/pages/oplUI.html.ep
+- templates/pages/twocolumn.html.ep
+
+### Deliverables written
+- PRESERVE_INDEX.txt
+- MASTER_ONLY_IMPORTED.txt
+- TARGET_ONLY_RETAINED.txt
+
+## Phase A Execution Log (2026-01-14)
+
+Summary counts:
+- copied new files: 3
+- updated existing files: 0
+- skipped files: 0
+- workflow-gated files: 0
+
+Copied from master-link:
+- local_pg_files/matching.pg
+- local_pg_files/matching.pgml
+- tests/run_ascii_compliance.sh
+
+Updated from master-link:
+- (none)
+
+Skipped and why:
+- (none)
+
+Workflow gated:
+- (none)
+
+Manifest sanity:
+- master manifest count: 71; excluded/skipped: 1852 (total files 1923)
+- target manifest count: 135; excluded/skipped: 81 (total files 216)
+
+Notes:
+- Phase A scope only; no overwrites; no lib/** touched.
+- Manifests regenerated after Phase A copy to reflect current state.
+
+Acceptance check (pending):
+- renderer starts
+- one OPL page loads
+- one editor page loads
+- container build (if applicable)
+
+## Phase A Update (2026-01-14)
+
+Change:
+- Removed deprecated `tests/run_ascii_compliance.sh` (per user request).
+
+Manifest sanity (post-removal):
+- master manifest count: 71; excluded/skipped: 1852 (total files 1923)
+- target manifest count: 134; excluded/skipped: 81 (total files 215)
+
+## Phase A Update (2026-01-14) — Rename local_pg_files to private
+
+Change:
+- Renamed `local_pg_files/` to `private/` to match upstream semantics.
+
+References updated:
+- `README.md`, `docs/USAGE.md`, `docs/FILE_STRUCTURE.md`, `docker-compose.yml`, `AGENTS.md`, `file_list.txt`
+- `MIGRATION_FILES/MIGRATION_PLAN.md`, `MIGRATION_FILES/PLAN_NEXT_STEP.md`, `MIGRATION_FILES/UPSTREAM_vs_MASTER.md`, `MIGRATION_FILES/MASTER_ONLY_IMPORTED.txt`, `MIGRATION_FILES/MANIFEST.target.txt`
+
+Notes:
+- Historical log entries still mention `local_pg_files/` for earlier Phase A copy actions.
+
+## Phase A Update (2026-01-14) — Dockerfile WeBWorK htdocs requirement removed
+
+Change:
+- Removed `lib/WeBWorK/htdocs/package*.json` COPY/npm install block from `Dockerfile` to align with upstream layout.
+
+Notes:
+- This avoids build failures when `lib/WeBWorK/htdocs` is absent in the upstream-based tree.
+- Still expects `lib/PG/htdocs` for asset installs.
+
+## Phase A Update (2026-01-14) — Ensure PG submodule in run.sh
+
+Change:
+- Added a guard in `run.sh` to initialize `lib/PG` if `lib/PG/htdocs` is missing.
+
+Notes:
+- Avoids Docker build failures when the submodule has not been initialized locally.
+
+## Phase A Update (2026-01-14) — PG assets copy fix
+
+Change:
+- Removed `lib/PG/htdocs/third-party-assets.json` from Dockerfile COPY step (file not present in upstream PG checkout).
+
+Notes:
+- `generate-assets.js` remains copied; `third-party-assets.json` was not referenced in this PG version.
+
+## Phase A Update (2026-01-14) — Remove TikZImage.pm COPY
+
+Change:
+- Removed `lib/PG/TikZImage.pm` COPY and mkdir from Dockerfile (file not present in upstream PG checkout).
+
+Notes:
+- Aligns Dockerfile with upstream PG layout.
+
+## Phase A Update (2026-01-14) — Fix formURL config
+
+Change:
+- Set `formURL` to empty in `render_app.conf.dist` so RenderApp derives an absolute URL from `SITE_HOST`.
+
+Notes:
+- Prevents startup failure: "formURL must be absolute".
+
+## Phase A Update (2026-01-14) — Restore formURL and accept relative paths
+
+Change:
+- Restored `formURL => '/render-api'` in `render_app.conf.dist` to match upstream semantics.
+- Updated `lib/RenderApp.pm` to accept relative `formURL` values and resolve them against `SITE_HOST` and `baseURL`.
+
+Notes:
+- Avoids startup failure while keeping upstream-friendly config.
+
+## Phase A Update (2026-01-14) — Root render endpoint + compat alias
+
+Change:
+- Added `POST /` as the primary render endpoint; kept `/render-api` as an alias for compatibility.
+- Updated docs to reference `/` as primary while retaining `/render-api` as supported.
+
+## Phase B Review Bundle (2026-01-14)
+
+Output:
+- Created `MIGRATION_FILES/PHASE_B_REVIEW.md` with one decision note per common-but-different file.
+
+Notes:
+- Phase B is documentation only; no merges or overwrites performed.
+
+## Phase C — Legacy public asset quarantine (2026-01-14)
+
+Action:
+- Quarantined master flat `public/*` assets to `preserve/legacy-public/public/` per Phase C boundary. No mapping into pipeline yet.
+
+Quarantined files:
+- public/Rederly-50.png
+- public/crt-display.css
+- public/favicon.ico
+- public/filebrowser.css
+- public/filebrowser.js
+- public/iframeResizer.contentWindow.map
+- public/iframeResizer.contentWindow.min.js
+- public/iframeResizer.map
+- public/iframeResizer.min.js
+- public/navbar.css
+- public/navbar.js
+- public/opl-flex.css
+- public/pg-modern.css
+- public/tags.css
+- public/tags.js
+- public/twocolumn.css
+- public/typing-sim.css
+- public/webwork-logo-65.png
+- public/webwork_logo.svg
+
+Notes:
+- Upstream pipeline assets (`public/css/**`, `public/js/**`, `public/images/**`, `public/package*.json`, `public/generate-assets.js`) remain canonical and unchanged.
+- No template switches to flat `/asset` paths in Phase C.
+
+## Phase C Follow-up (2026-01-14) — Restore upstream templates + pipeline assets
+
+Action:
+- Restored upstream versions of UI templates that were still pointing at flat `/asset` or `/webwork2_files` paths.
+- Preserved the prior (master-style) versions under `preserve/legacy-templates/`.
+
+Templates restored from upstream:
+- templates/layouts/navbar.html.ep
+- templates/columns/editorIframe.html.ep
+- templates/columns/editorUI.html.ep
+- templates/columns/filebrowser.html.ep
+- templates/columns/oplIframe.html.ep
+- templates/columns/tags.html.ep (with tolerant taxonomy behavior + warning)
+- templates/exception.html.ep
+- templates/pages/flex.html.ep
+- templates/pages/oplUI.html.ep
+- templates/pages/twocolumn.html.ep
+
+Pipeline alignment:
+- Added `npm install` in `public/` to Dockerfile so `public/node_modules` assets (e.g., `@openwebwork/pg-codemirror-editor`) are present at runtime.
+
+Notes:
+- This aligns with the Phase B global rule: upstream routing and asset pipeline remain canonical.
+
+## Phase C Follow-up (2026-01-14) — Public asset build inputs
+
+Change:
+- Dockerfile now copies `public/generate-assets.js`, `public/js`, and `public/css` before `npm install` in `public/` so the asset build can run during image build.
+
+Notes:
+- Fixes build failure: `Cannot find module '/usr/app/public/generate-assets'`.
+
+## Phase C Follow-up (2026-01-14) — Health JSON payload
+
+Change:
+- Restored master-style `/health` JSON payload in `lib/RenderApp.pm` (status, mode, and dependency versions).
+
+Notes:
+- Uses PG asset paths for jQuery/jQuery UI versions; `TikZImage` is optional and may report false if not present.
+
+## Phase C Follow-up (2026-01-14) — Health dependency version sources
+
+Change:
+- `/health` now falls back to `public/node_modules` package.json files for jQuery and jQuery UI versions when PG assets are absent.
+
+## Phase C Follow-up (2026-01-14) — Health uses dynamic versions
+
+Change:
+- `/health` now derives versions dynamically: PG from `lib/PG/VERSION`, CodeMirror from `public/node_modules`, jQuery/jQuery UI from `public/node_modules` (fallback after PG assets).
+- Removed hard-coded version strings and dropped `tikzimage` field.
+
+## Phase C Follow-up (2026-01-14) — Fix @openwebwork string interpolation
+
+Change:
+- Avoided Perl array interpolation in the `@openwebwork` node_modules path in `/health` by using string concatenation.
+
+## Phase C Follow-up (2026-01-14) — Health clarifies CodeMirror
+
+Change:
+- `/health` now reports `codemirror` from `@codemirror/*` (CM6) and adds `pg_codemirror_editor` for the wrapper package version.
+
+## Phase C Follow-up (2026-01-14) — Remove wrapper version from health
+
+Change:
+- `/health` no longer reports `pg_codemirror_editor`; only the CodeMirror (CM6) package version is reported.
+
+## Phase C Follow-up (2026-01-14) — Fix @codemirror interpolation
+
+Change:
+- Avoided Perl array interpolation in `@codemirror` paths by using string concatenation in `/health`.
+
+## Phase C Complete (2026-01-14)
+
+Status:
+- Phase C quarantine is complete. Legacy flat `public/*` assets are preserved under `preserve/legacy-public/public/`.
+- No template switches to flat asset paths were made.
+- Upstream asset pipeline remains canonical and UI/health checks are working.
+
+Remaining optional work (deferred):
+- Legacy asset mapping into canonical pipeline paths (only if specific functionality is missing upstream).
+
+## Phase B Implementation Complete (2026-01-14)
+
+Files changed:
+- `.gitignore`: merged upstream pipeline ignores with master dev-cache ignores; kept specific tmp/log patterns.
+- `README.md`: restored upstream README and added a "Local dev on this fork" section.
+- `script/render_app`: deterministic @INC via FindBin (../lib, ../lib/PG, ../lib/PG/lib, ../lib/WeBWorK).
+- `Dockerfile`: ensured `conf/pg_config.yml` is copied to `/usr/app/lib/PG/conf/pg_config.yml` in the image.
+- `.gitattributes`: aligned with upstream (removed vendored rule for `lib/WeBWorK/htdocs/**`).
+
+Validation gate results:
+- `./run.sh` starts cleanly; log shows listening on `http://*:3000`.
+- `/health` returns JSON (pg 2.19, codemirror 6.5.2, jquery 3.7.0, jquery_ui 1.13.2).
+- Container check: `/usr/app/lib/PG/conf/pg_config.yml` exists (exit 0).
+- Render request: `POST /render-api` with `private/myproblem.pg` returned HTTP 500 (see log: path resolved to `private/`); needs follow-up.
+
+## Phase B Validation Clarification (2026-01-14)
+
+- Confirmed `/usr/app/private/myproblem.pg` exists in container.
+- Correct render request is form-encoded (not JSON). `POST /render-api` with `sourceFilePath=private/myproblem.pg` returned HTTP 200.
+
+## Render-API GET guard + validation (2026-01-14)
+
+Change:
+- Added GET guards for `/render-api` and `/render-api/` to return 405 JSON without invoking render handler.
+
+Validation:
+- `/health` returns JSON.
+- `GET /render-api` returns 405.
+- `POST /render-api` (form-encoded) with `sourceFilePath=private/myproblem.pg` returned HTTP 200.
+- `/usr/app/lib/PG/conf/pg_config.yml` exists in container.

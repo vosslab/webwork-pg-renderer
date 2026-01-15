@@ -1,0 +1,24 @@
+{
+  secrets => ['abracadabra'],
+  baseURL => '',
+  formURL => '',
+  problemJWTsecret => 'shared',
+  webworkJWTsecret => 'private',
+  SITE_HOST => 'http://localhost:3000',
+  CORS_ORIGIN => '*',
+  STATIC_EXPIRES => 86400,
+  STRICT_JWT => 0,
+  FULL_APP_INSECURE => 0,
+  INTERACTION_LOG => 0,
+  hypnotoad => {
+    listen => ['http://*:3000'],
+    accepts => 400,
+    workers => 10,
+    spare => 5,
+    clients => 100,
+    graceful_timeout => 45,
+    inactivity_timeout => 30,
+    keep_alive_timeout => 30,
+    requests => 5,
+  }
+};

@@ -82,9 +82,9 @@ mv .gitmodules.tmp .gitmodules
 # Append desired block
 if ! grep -q '\[submodule "lib/PG"\]' .gitmodules; then
   printf '%s\n' "[submodule \"lib/PG\"]" >> .gitmodules
-  printf '%s\n' "\tpath = lib/PG" >> .gitmodules
-  printf '%s\n' "\turl = https://github.com/openwebwork/pg.git" >> .gitmodules
-  printf '%s\n' "\tbranch = main" >> .gitmodules
+  printf '%s\n' "  path = lib/PG" >> .gitmodules
+  printf '%s\n' "  url = https://github.com/openwebwork/pg.git" >> .gitmodules
+  printf '%s\n' "  branch = main" >> .gitmodules
 fi
 
 # Set gitlink to upstream commit (no submodule checkout required)

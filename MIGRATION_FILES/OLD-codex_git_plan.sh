@@ -8,7 +8,7 @@ PUSH_WORKFLOWS=${PUSH_WORKFLOWS:-0}
 DO_CLEANUP=${DO_CLEANUP:-0}
 OPENWEBWORK_REMOTE=${OPENWEBWORK_REMOTE:-openwebwork}
 OPENWEBWORK_REMOTE_URL=${OPENWEBWORK_REMOTE_URL:-https://github.com/openwebwork/renderer.git}
-PREFERRED_BRANCH=${PREFERRED_BRANCH:-integrate-from-voss}
+BRANCH_NAME=${BRANCH_NAME:-"port-from-master-$(date +%Y%m%d)"}
 
 # Sanity: must be in a git repo
 repo_root=$(git rev-parse --show-toplevel)
@@ -41,6 +41,7 @@ if git remote | grep -qx origin; then
 fi
 
 # Prefer existing integration branch; avoid creating a new one.
+PREFERRED_BRANCH=${PREFERRED_BRANCH:-integrate-from-voss}
 if [[ "$current_branch" == "master" || "$current_branch" == "main" || "$current_branch" == "HEAD" ]]; then
   if git show-ref --verify --quiet "refs/heads/$PREFERRED_BRANCH"; then
     git switch "$PREFERRED_BRANCH"
@@ -56,52 +57,37 @@ if [[ "$current_branch" == "master" || "$current_branch" == "main" || "$current_
   exit 1
 fi
 
-# --- Submodule metadata for lib/PG ---
-fix_gitmodules() {
-  if [[ -f .gitmodules ]]; then
-    if ! git config -f .gitmodules --list >/dev/null 2>&1; then
-      echo "WARNING: .gitmodules invalid; rewriting with only lib/PG entry."
-      cat > .gitmodules <<'EOM'
-[submodule "lib/PG"]
-  path = lib/PG
-  url = https://github.com/openwebwork/pg.git
-  branch = main
-EOM
-      return
-    fi
-  else
-    : > .gitmodules
-  fi
+# --- Submodule conversion for lib/PG ---
+# Determine expected gitlink from upstream
+up_pg_commit=$(git ls-tree "$OPENWEBWORK_REMOTE/main" lib/PG | awk '{print $3}')
 
-  # Remove any existing lib/PG block, preserve other submodules
-  awk '
-    BEGIN{inblock=0}
-    /^\[submodule "lib\/PG"\]/{inblock=1; next}
-    inblock && /^\[submodule /{inblock=0}
-    !inblock{print}
-  ' .gitmodules > .gitmodules.tmp
-  mv .gitmodules.tmp .gitmodules
-
-  # Append desired block if missing
-  if ! grep -q '\[submodule "lib/PG"\]' .gitmodules; then
-    printf '%s\n' "[submodule \"lib/PG\"]" >> .gitmodules
-    printf '%s\n' "  path = lib/PG" >> .gitmodules
-    printf '%s\n' "  url = https://github.com/openwebwork/pg.git" >> .gitmodules
-    printf '%s\n' "  branch = main" >> .gitmodules
-  fi
-}
-
-fix_gitmodules
-
-# Ensure lib/PG is a gitlink (submodule)
 libpg_mode=$(git ls-tree HEAD lib/PG | awk '{print $1}')
 if [[ "$libpg_mode" != "160000" ]]; then
   echo "ERROR: lib/PG is not a gitlink. Convert manually (back up first), then re-run."
   exit 1
 fi
 
-# Set gitlink to upstream commit if available
-up_pg_commit=$(git ls-tree "$OPENWEBWORK_REMOTE/main" lib/PG | awk '{print $3}')
+# Ensure .gitmodules has lib/PG block
+if [[ ! -f .gitmodules ]]; then
+  : > .gitmodules
+fi
+# Remove any existing lib/PG block
+awk '
+  BEGIN{inblock=0}
+  /^\[submodule "lib\/PG"\]/{inblock=1; next}
+  inblock && /^\[submodule /{inblock=0}
+  !inblock{print}
+' .gitmodules > .gitmodules.tmp
+mv .gitmodules.tmp .gitmodules
+# Append desired block
+if ! grep -q '\[submodule "lib/PG"\]' .gitmodules; then
+  printf '%s\n' "[submodule \"lib/PG\"]" >> .gitmodules
+  printf '%s\n' "  path = lib/PG" >> .gitmodules
+  printf '%s\n' "  url = https://github.com/openwebwork/pg.git" >> .gitmodules
+  printf '%s\n' "  branch = main" >> .gitmodules
+fi
+
+# Set gitlink to upstream commit (no submodule checkout required)
 if [[ -n "$up_pg_commit" ]]; then
   git update-index --add --cacheinfo 160000,"$up_pg_commit",lib/PG
 else
@@ -113,26 +99,17 @@ git add .gitmodules lib/PG
 if ! git diff --cached --quiet; then
   git commit -m "Set lib/PG as submodule"
 fi
-git reset -q
 
-# --- Phase D UI/UX: legacy promotions (public assets) ---
-git add -A -- public/css public/js
+# --- Grouped commits (exclude workflows, then migration artifacts) ---
+git add -A -- :!.github/workflows :!MIGRATION_FILES :!preserve
 if ! git diff --cached --quiet; then
-  git commit -m "Phase D: modern UI defaults"
+  git commit -m "Phase B/C core changes"
 fi
 git reset -q
 
-# --- Health: report node version ---
-git add -A -- lib/RenderApp.pm
-if ! git diff --cached --quiet; then
-  git commit -m "Health: report node version"
-fi
-git reset -q
-
-# --- Migration artifacts ---
 git add -A MIGRATION_FILES preserve
 if ! git diff --cached --quiet; then
-  git commit -m "Migration artifacts (Phase D)"
+  git commit -m "Migration artifacts"
 fi
 git reset -q
 
@@ -143,7 +120,7 @@ if git status --porcelain | grep -q '^.. .github/workflows/'; then
 fi
 if [[ $workflow_changes -eq 1 ]]; then
   if [[ "$PUSH_WORKFLOWS" == "1" ]]; then
-    git add -A -f -- .github/workflows
+    git add -A -- .github/workflows
     if ! git diff --cached --quiet; then
       git commit -m "Workflow updates (optional)"
     fi

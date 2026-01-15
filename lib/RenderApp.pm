@@ -130,10 +130,78 @@ sub startup {
 	# and is used in Environment for pg_root_url
 	my $r = $self->routes->under($ENV{baseURL});
 
+	# Primary render endpoint: root path; keep /render-api as alias for compatibility.
+	$r->post('/')->to('render#problem');
+	$r->get('/render-api' => sub {
+		my $c = shift;
+		return $c->render(
+			json => {
+				error => 'POST only',
+				hint  => 'Use POST /render-api with sourceFilePath=private/myproblem.pg'
+			},
+			status => 405
+		);
+	});
+	$r->get('/render-api/' => sub {
+		my $c = shift;
+		return $c->render(
+			json => {
+				error => 'POST only',
+				hint  => 'Use POST /render-api with sourceFilePath=private/myproblem.pg'
+			},
+			status => 405
+		);
+	});
 	$r->any('/render-api')->to('render#problem');
 	$r->any('/render-ptx')->to('render#render_ptx');
-	$r->any('/health' => sub { shift->rendered(200) });
-	$r->any('/health' => sub {shift->rendered(200)});
+	$r->any('/health' => sub {
+		my $c = shift;
+		my $get_version = sub {
+			my ($path, $regex) = @_;
+			return '' unless -r $path;
+			my $content = Mojo::File->new($path)->slurp;
+			return ($content =~ $regex) ? $1 : '';
+		};
+		my $get_pg_version = sub {
+			my $path = "$ENV{PG_ROOT}/VERSION";
+			return '' unless -r $path;
+			my $content = Mojo::File->new($path)->slurp;
+			return ($content =~ /\$PG_VERSION\s*=\s*'([^']+)'/) ? $1 : '';
+		};
+		my $get_pkg_version = sub {
+			my ($path) = @_;
+			return '' unless -r $path;
+			my $content = Mojo::File->new($path)->slurp;
+			my $json = eval { Mojo::JSON::decode_json($content) };
+			return ($json && $json->{version}) ? $json->{version} : '';
+		};
+
+		my $pg_version = $get_pg_version->();
+		my $jquery_version =
+			$get_version->("$ENV{PG_ROOT}/htdocs/js/vendor/jquery/jquery-1.12.4.min.js", qr/v(\d+\.\d+\.\d+)/);
+		my $jquery_ui_version =
+			$get_version->("$ENV{PG_ROOT}/htdocs/js/vendor/jquery/jquery-ui-1.12.1.min.js", qr/v(\d+\.\d+\.\d+)/);
+		$jquery_version ||= $get_pkg_version->("$ENV{RENDER_ROOT}/public/node_modules/jquery/package.json");
+		$jquery_ui_version ||= $get_pkg_version->("$ENV{RENDER_ROOT}/public/node_modules/jquery-ui-dist/package.json");
+		my $codemirror_version =
+			$get_pkg_version->($ENV{RENDER_ROOT} . '/public/node_modules/@codemirror/state/package.json');
+		$codemirror_version ||= $get_pkg_version->($ENV{RENDER_ROOT} . '/public/node_modules/@codemirror/view/package.json');
+		$codemirror_version ||= $get_pkg_version->($ENV{RENDER_ROOT} . '/public/node_modules/codemirror/package.json');
+
+		$c->render(
+			json => {
+				status => 'ok',
+				mode   => $c->app->mode,
+				deps   => {
+					pg         => $pg_version,
+					codemirror => $codemirror_version,
+					jquery     => $jquery_version,
+					jquery_ui  => $jquery_ui_version,
+				},
+			},
+			status => 200
+		);
+	});
 	if ($self->mode eq 'development' || $self->config('FULL_APP_INSECURE')) {
 		$r->any('')->to('pages#twocolumn');
 		$r->any('/')->to('pages#twocolumn');
@@ -233,9 +301,16 @@ sub sanitizeHostURLs {
 	if ($ENV{formURL} =~ m!\S!) {
 
 		# this should only be used by MITM
-		$main::formURL = Mojo::URL->new($ENV{formURL});
-		die '*** [CONFIG] if provided, formURL must be absolute'
-			unless $main::formURL->is_abs;
+		my $formURL = Mojo::URL->new($ENV{formURL});
+		if (!$formURL->is_abs) {
+			my $path = $ENV{formURL};
+			$path = "/$path" unless $path =~ m!^/!;
+			if ($ENV{baseURL} =~ m!\S! && $path !~ m!^\Q$ENV{baseURL}/!) {
+				$path = "$ENV{baseURL}$path";
+			}
+			$formURL = Mojo::URL->new($ENV{SITE_HOST})->path($path);
+		}
+		$main::formURL = $formURL;
 	} else {
 		# if using MITM proxy base href + renderer api not at SITE_HOST root
 		# provide form url as absolute SITE_HOST/extension/render-api

@@ -1,10 +1,13 @@
 %= stylesheet 'css/tags.css'
 
-% my $taxo = '';
-% if ( open(TAXONOMY, "<:encoding(utf8)", $c->app->home->child('tmp/tagging-taxonomy.json')) ) {
+% my $taxo = '[]';
+% my $taxo_path = $c->app->home->child('tmp/tagging-taxonomy.json');
+% if ( open(TAXONOMY, "<:encoding(utf8)", $taxo_path) ) {
 %     $taxo = join("", <TAXONOMY>);
 %     close TAXONOMY;
-% } else { die "Could not open Taxonomy!"; }
+% } else {
+%     $c->app->log->warn("Missing taxonomy file: $taxo_path");
+% }
 
 <div class='content'>
     %= form_for 'render-api/tags' => ( method => 'POST', id => 'problem-tags' ) => begin

@@ -61,6 +61,22 @@ If using a local install instead of docker:
   root url
 * access on `localhost:3000` by default or otherwise specified root url
 
+## Local dev on this fork
+
+This fork adds a lightweight local workflow using podman-compose and a `private/` folder for local problems.
+
+Quick start (podman):
+
+```bash
+mkdir private
+./run.sh
+```
+
+Notes:
+- `private/` on the host is mounted to `/usr/app/private` in the container.
+- POST `/` is supported as a primary render endpoint; `/render-api` remains for compatibility.
+
+
 ## Editor Interface
 
 * point your browser at [`localhost:3000`](http://localhost:3000/)

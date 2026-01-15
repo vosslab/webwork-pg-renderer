@@ -5,6 +5,18 @@
 - Expand the API usage doc with response examples, JWT flow, and lint key guidance.
 - Document common parameter defaults and `problemSourceURL` response expectations.
 - Add form-encoded and base64 `problemSource` examples to the API usage doc.
+- Add `MIGRATION_FILES/LEGACY_TEMPLATE_PORT_PLAN.md` for porting preserved templates.
+- Document lint-critical response schema and UI payloads in the API usage doc.
+- Add pglint CLI behavior and parsing details to the API usage doc.
+- Add lint error detection pseudo-flow guidance to the API usage doc.
+- Add a pglint vs UI payload note for JSON vs form-data usage.
+- Note container path requirements and recommend `problemSource` for pglint runs.
+- Update pglint documentation to match the current root script defaults.
+- Remove pglint-specific details from the API usage doc and keep general lint guidance.
+- Merge JSON request bodies into render parameters (JSON overrides form/query).
+- Document JSON request support and precedence in the API usage doc.
+- Reformat `MIGRATION_FILES/LEGACY_TEMPLATE_PORT_PLAN.md` to match the legacy port plan style and include merge guidance.
+- Record decision to keep canonical templates and skip legacy merges.
 
 ## 2026-01-13
 - Update `docs/CODE_ARCHITECTURE.md` to reflect the current architecture and workflows.

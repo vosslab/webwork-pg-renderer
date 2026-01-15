@@ -10,6 +10,11 @@ use WeBWorK::PreTeXt;
 sub parseRequest {
 	my $c      = shift;
 	my %params = %{ $c->req->params->to_hash };
+	my $json   = $c->req->json;
+	if (ref $json eq 'HASH') {
+		# JSON body values override form/query params.
+		@params{ keys %$json } = values %$json;
+	}
 
 	my $originIP = $c->req->headers->header('X-Forwarded-For')
 		// '' =~ s!^\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}).*$!$1!r;

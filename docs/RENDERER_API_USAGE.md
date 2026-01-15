@@ -12,9 +12,10 @@ This document describes the HTTP API for rendering PG or PGML problems from scri
 
 ## Request format
 
-- Send request parameters as `application/json` or form-encoded data.
-- For JSON clients, set `Content-Type: application/json`.
-- For form-encoded requests, use `application/x-www-form-urlencoded`.
+- The renderer reads request parameters from form/query params and merges JSON bodies.
+- When both are present, JSON values override form/query params.
+- Use multipart form data or `application/x-www-form-urlencoded` for browser parity.
+- Use JSON for API clients that prefer `Content-Type: application/json`.
 - Required parameters include a source and a seed:
   - Provide one source, in this order of precedence:
     - `problemSourceURL`: URL to fetch JSON with a `raw_source` field.
@@ -22,6 +23,8 @@ This document describes the HTTP API for rendering PG or PGML problems from scri
     - `sourceFilePath`: file path relative to `Library/`, `Contrib/`, or `private/`.
   - `problemSeed`: integer seed for reproducible randomization.
 - Parameter precedence is `problemSourceURL` then `problemSource` then `sourceFilePath`.
+- If you do not have access to the renderer container filesystem, prefer `problemSource`
+  over `sourceFilePath`. `sourceFilePath` must be readable inside the renderer container.
 
 ## Common parameters and defaults
 
@@ -32,7 +35,17 @@ This document describes the HTTP API for rendering PG or PGML problems from scri
 | displayMode | string | `MathJax` | Math rendering mode (`MathJax` or `ptx`). |
 | _format | string | `html` | Response structure (`html` or `json`). |
 
-## Minimal request example
+## Minimal request example (recommended)
+
+```bash
+curl -X POST "http://localhost:3000/render-api" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "sourceFilePath=private/myproblem.pg" \
+  --data-urlencode "problemSeed=1234" \
+  --data-urlencode "outputFormat=html"
+```
+
+## JSON request example
 
 ```bash
 curl -X POST "http://localhost:3000/render-api" \
@@ -44,23 +57,57 @@ curl -X POST "http://localhost:3000/render-api" \
   }'
 ```
 
-## Form-encoded request example
-
-```bash
-curl -X POST "http://localhost:3000/render-api" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode "sourceFilePath=private/myproblem.pg" \
-  --data-urlencode "problemSeed=1234" \
-  --data-urlencode "outputFormat=html"
-```
-
 ## Response format
 
 - Use `_format` to control response structure:
   - `_format: "html"` returns HTML content (default).
   - `_format: "json"` returns JSON describing the render.
 - Errors return non-200 status codes with a JSON payload containing `message` and `status`.
-- JSON responses include an `inputs_ref` echo of the resolved request parameters.
+- When `isInstructor=1`, JSON responses include an `inputs` echo of the resolved request parameters.
+
+## Lint-critical response schema
+
+The UI uses `_format: "json"`, which returns a JSON response shaped like this:
+
+```json
+{
+  "renderedHTML": "<!doctype html>...",
+  "debug": {
+    "perl_warn": null,
+    "pg_warn": ["..."],
+    "debug": ["..."],
+    "internal": ["..."]
+  },
+  "problem_result": {},
+  "problem_state": {},
+  "flags": {
+    "error_flag": 0
+  },
+  "resources": {
+    "regex": [],
+    "alias": {},
+    "assets": []
+  },
+  "JWT": {
+    "problem": null,
+    "session": null,
+    "answer": null
+  }
+}
+```
+
+Conditional fields:
+
+- When `isInstructor=1`, the response includes `answers`, `inputs`, and `pgcore`.
+- When `includeTags=1`, the response includes `tags` and `raw_metadata_text`.
+
+Lint notes:
+
+- Translator errors and PG warnings are rendered into `renderedHTML` and are not returned as structured fields.
+- `flags.error_flag` indicates a render error.
+- `debug.pg_warn` contains warning strings from PG WARN_message.
+- `debug.internal` and `debug.debug` contain internal and debug message strings.
+- Line and column numbers are not structured fields; they may appear inside the warning or error text.
 
 ## Response examples
 
@@ -178,36 +225,81 @@ curl -X POST "http://localhost:3000/render-api" \
   }'
 ```
 
-## PGML lint helper
+## Linting guidance
 
-The repo root includes `pglint.py`, a Python 3.12 CLI that posts PG content to the renderer API and emits
-pyflakes-style issue lines.
+If you are building a linter against this API, use the JSON response and a layered
+approach to detect problems.
 
-- The default endpoint in `pglint.py` is `/render-api/render`.
-- For this renderer, override it to `/render-api` or `/`.
+### Recommended parsing rules
 
-### Issue keys and messages
+- Check top-level `errors` or `warnings` fields if your integration maps them in.
+- Message keys are often one of `message`, `error`, `warning`, `detail`, `stderr`.
+- Line keys commonly include `line`, `lineNumber`, `lineno`, `row`.
+- Column keys commonly include `column`, `col`, `columnNumber`, `colNumber`.
+- If no line or column is provided, default to `1:1`.
+- Consider scanning message text for `Line N` or `line N column M` patterns.
 
-- Default issue keys: `errors`, `warnings`.
-- Default message keys: `message`, `error`, `warning`, `detail`, `stderr`.
-- Override issue keys with `--error-keys` when your API uses different keys.
+### How to detect errors for linting
 
-Example payload template:
+Use a conservative, layered approach:
 
-```json
-{
-  "sourceFilePath": "{{PG_PATH}}",
-  "problemSource": "{{PG_SOURCE}}",
-  "problemSeed": "{{PG_SEED}}",
-  "outputFormat": "{{PG_FORMAT}}"
-}
-```
+1) Check `flags.error_flag` in the JSON response.
+2) Scan `debug.pg_warn` for warning strings.
+3) Scan `debug.internal` and `debug.debug` for renderer diagnostics.
+4) If none are present, scan `renderedHTML` for the warning blocks rendered by the UI
+   (for example the "Translator errors" or "Warning messages" sections).
 
-Example run:
+This matches how the renderer reports errors today: some are structured, some are only embedded in the HTML.
+
+## UI request payloads
+
+The editor UI in `public/js/navbar.js` uses multipart form data and base64 encodes `problemSource`.
+
+### Render from editor
+
+Fields posted to `POST /render-api` when clicking "Render contents of editor":
+
+- `_format`: `json`
+- `showComments`: `1`
+- `sourceFilePath`: from the file path input
+- `problemSeed`: from the seed input
+- `outputFormat`: selected template ID (for example `default`, `static`, `debug`)
+- `problemSource`: base64 of the editor contents
+- `clientDebug`: `1` when outputFormat is `debug`
+- `isInstructor`: `1` when the "Instructor" checkbox is checked
+- `clientDebug`: `1` when the "Debug" checkbox is checked
+
+### Submit/preview from rendered problem
+
+Fields posted to `POST /render-api` when submitting answers from the iframe:
+
+- `_format`: `json`
+- `isInstructor`: `1`
+- `includeTags`: `1`
+- `showComments`: `1`
+- `sourceFilePath`: from the file path input
+- `problemSeed`: from the seed input
+- `outputFormat`: selected template ID
+- `problemSource`: base64 of the editor contents
+- One of `previewAnswers`, `submitAnswers`, or `showCorrectAnswers` from the clicked button
+- Any checked checkboxes from the UI (for example `isInstructor`, `clientDebug`)
+
+### Load and save
+
+- Load: `POST /render-api/tap` with `sourceFilePath`.
+- Save: `POST /render-api/can` with `problemSource` (base64) and `writeFilePath`.
+
+## UI equivalent curl
+
+This mirrors the UI render request. Use your own `problemSource` base64 content.
 
 ```bash
-/opt/homebrew/opt/python@3.12/bin/python3.12 ./pglint.py \
-  --endpoint /render-api \
-  --payload-template /path/to/payload.json \
-  private/example.pg
+curl -X POST "http://localhost:3000/render-api" \
+  -H "Accept: application/json" \
+  -F "_format=json" \
+  -F "showComments=1" \
+  -F "sourceFilePath=private/example.pg" \
+  -F "problemSeed=1234" \
+  -F "outputFormat=default" \
+  -F "problemSource=BASE64_PG_SOURCE"
 ```

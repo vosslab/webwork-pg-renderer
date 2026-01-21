@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-01-21
+- Add randomize seed button (🎲) next to seed input in navbar
+- Reduce seed input width from 130px to 80px and apply monospace font
+- Increase file path input maximum width by adjusting navbar space calculation
+
 ## 2026-01-15
 - Add [docs/RENDERER_API_USAGE.md](docs/RENDERER_API_USAGE.md) with HTTP API usage and pglint notes.
 - Expand the API usage doc with response examples, JWT flow, and lint key guidance.

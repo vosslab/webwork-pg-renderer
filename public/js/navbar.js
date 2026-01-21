@@ -37,6 +37,14 @@ function ensureDefaults() {
 	}
 }
 
+function randomizeSeed() {
+	const seedInput = document.getElementById("problemSeed");
+	if (seedInput) {
+		const randSeed = 1 + Math.floor(Math.random() * 999999);
+		seedInput.value = randSeed;
+	}
+}
+
 for (const element of templateItems) {
 	element.addEventListener("click", (e) => {
 		e.preventDefault();
@@ -53,11 +61,16 @@ $(function () {
 	const remaining =
 		document.querySelector(".topnav").offsetWidth -
 		document.querySelector("#template-select").offsetWidth -
-		330;
+		280;
 	$("#sourceFilePath").css("maxWidth", remaining);
 });
 
 document.addEventListener("DOMContentLoaded", ensureDefaults);
+
+const randomizeSeedButton = document.getElementById("randomize-seed");
+if (randomizeSeedButton) {
+	randomizeSeedButton.addEventListener("click", randomizeSeed);
+}
 
 let loadbutton = document.getElementById("load-problem");
 let savebutton = document.getElementById("save-problem");

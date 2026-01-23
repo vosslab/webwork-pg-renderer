@@ -6,14 +6,14 @@ Scope: filesystem comparison excluding `lib/`, `.git/`, `.cpanm/`, `local/`, `lo
 ## Executive Summary (Non-Coders)
 - **Upstream** focuses on the core renderer product: its structured assets, build pipeline, and deployment files.
 - **Master** focuses on local development and teaching workflows: richer docs, local scripts, and test helpers.
-- We are **combining both**: keeping upstream structure and assets while adding master’s dev tooling and documentation.
+- We are **combining both**: keeping upstream structure and assets while adding master's dev tooling and documentation.
 - **No upstream files are deleted by default.** If master replaces something, the upstream version is preserved in `preserve/upstream/`.
 
 ## What This Means in Practice (Non-Coders)
 - You keep the official renderer layout and web assets from upstream.
 - You also gain the more practical local workflows from master (run scripts, docs, smoke tests).
 - If there is a conflict, both versions are saved so you can choose later.
-- `lib/PG` is treated as a separate module (submodule), matching upstream’s structure.
+- `lib/PG` is treated as a separate module (submodule), matching upstream's structure.
 
 ## Counts
 - only-in-upstream: 34

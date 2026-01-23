@@ -2,7 +2,7 @@
 
 Date: 2026-01-14
 Scope: Upstream vs master-link comparison for the 18 common-but-different files in `COMMON_DIFFS.md`.
-Output: One short “decision needed” note per file (or dependency notes where requested). No merges or overwrites performed.
+Output: One short "decision needed" note per file (or dependency notes where requested). No merges or overwrites performed.
 
 ## Global rule
 Upstream routing, baseURL behavior, and the upstream asset pipeline stay canonical. Do not introduce flat root assets (`/foo.js`) or `/webwork2_files/...` assumptions until Phase C asset mapping exists.
@@ -22,7 +22,7 @@ Decision: manual merge.
 Rules: keep upstream ignores for canonical pipeline outputs; add master ignores for dev caches and local artifacts (`.cpan*`, `local/`, editor temp files); avoid broad patterns that hide real changes (prefer `logs/*.log` to `logs/*` unless justified).
 
 5) `README.md`
-Decision: keep upstream as top-level, add a “Local dev on this fork” section from master.
+Decision: keep upstream as top-level, add a "Local dev on this fork" section from master.
 Reason: upstream API semantics remain authoritative; fork guidance stays discoverable.
 
 6) `docs/make_translation_files.md`
@@ -52,7 +52,7 @@ Concrete choices:
 - Keep upstream npm install in `public/` and `lib/PG/htdocs`.
 - Do not add any step requiring `lib/WeBWorK/htdocs` (not present upstream).
 - Fix `pg_config.yml` placement to `lib/PG/conf/pg_config.yml` (or ensure it exists at runtime).
-- Optionally take master’s newer base image and cpanfile flow.
+- Optionally take master's newer base image and cpanfile flow.
 
 7) `render_app.conf.dist`
 Decision: keep upstream defaults canonical and stop changing them.
@@ -92,11 +92,11 @@ Reason: base tag is essential for proxy correctness; master assets are flat and 
 Phase C is where legacy flat `public/*` assets are quarantined and any mapping into the canonical pipeline is decided. No template should switch to flat `/asset.js` paths before that mapping exists.
 
 ## Validation gate (post-Dockerfile merge and post-Phase C)
-Run these 3–5 checks after Dockerfile merge and again after Phase C:\n
+Run these 3-5 checks after Dockerfile merge and again after Phase C:\n
 1) Confirm `lib/PG/conf/pg_config.yml` exists inside the container.\n
 2) Confirm one pipeline asset URL returns 200 (e.g., a `public/` or `pg_files` asset).\n
 3) Confirm `/health` returns 200.\n
 4) Confirm one render request succeeds for `private/myproblem.pg` (POST `/` or `/render-api`).\n
 
 ## Completion rule
-Phase B is complete when every item above is either a firm decision with 1–2 sentence rationale or a dependency note with a recommended patch plan. No files merged in Phase B.
+Phase B is complete when every item above is either a firm decision with 1-2 sentence rationale or a dependency note with a recommended patch plan. No files merged in Phase B.

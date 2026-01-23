@@ -1,7 +1,11 @@
 # Changelog
 
+## 2026-01-23
+- Truncate debug pretty-print output for sessionJWT, problemJWT, and problemSource values.
+- Replace dice emoji in changelog entry with ASCII text for compliance.
+
 ## 2026-01-21
-- Add randomize seed button (🎲) next to seed input in navbar
+- Add randomize seed button (dice icon) next to seed input in navbar
 - Reduce seed input width from 130px to 80px and apply monospace font
 - Increase file path input maximum width by adjusting navbar space calculation
 

@@ -293,6 +293,24 @@ sub jsonResponse {
 	};
 }
 
+my %DEBUG_TRUNCATE_KEYS = map { $_ => 1 } qw(problemJWT problemSource sessionJWT);
+
+sub truncate_debug_value {
+	my ($key, $value) = @_;
+	return undef unless defined $value;
+	return undef if ref $value;
+	return undef unless $DEBUG_TRUNCATE_KEYS{$key};
+
+	my $max_len  = 160;
+	my $head_len = 40;
+	my $tail_len = 20;
+	return $value if length($value) <= $max_len;
+
+	my $hidden = length($value) - $head_len - $tail_len;
+	return substr($value, 0, $head_len) . "...(" . $hidden . " chars truncated)..."
+		. substr($value, -$tail_len);
+}
+
 # Nice output for debugging
 sub pretty_print {
 	my ($r_input, $level) = @_;
@@ -330,13 +348,16 @@ sub pretty_print {
 					|| ($key eq "externalPrograms")
 					|| ($key eq "permissionLevels")
 					|| ($key eq "seed_ce"));
+			my $value = $r_input->{$key};
+			my $truncated = truncate_debug_value($key, $value);
+			$value = defined $truncated ? $truncated : $value;
 			$out .=
 				'<div style="display:table-row"><div style="display:table-cell;vertical-align:middle;padding:3px">'
 				. xml_escape($key)
 				. '</div>'
 				. qq{<div style="display:table-cell;vertical-align:middle;padding:3px">=&gt;</div>}
 				. qq{<div style="display:table-cell;vertical-align:middle;padding:3px">}
-				. pretty_print($r_input->{$key}, $level)
+				. pretty_print($value, $level)
 				. '</div></div>';
 		}
 		$out .= '</div></div>';

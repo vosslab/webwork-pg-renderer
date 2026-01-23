@@ -8,7 +8,7 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
 
 - **Submit / form handling**
   - [ ] Server-side detection for missing submit controls: if rendered HTML has no submit buttons, emit a warning in the JSON debug block and log it.
-  - [ ] In the iframe client, surface submit errors as UI toasts instead of only `console.warn` (e.g., “Submit failed: no submit button found”).
+  - [ ] In the iframe client, surface submit errors as UI toasts instead of only `console.warn` (e.g., "Submit failed: no submit button found").
   - [ ] Log clearly (in console) when:
     - [ ] The main problem form cannot be found.
     - [ ] The submit handler fails to bind.
@@ -24,14 +24,14 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
 
 - **CodeMirror + editor UI**
   - [ ] Periodically confirm CodeMirror version is still current for the 5.x line (right now: 5.65.19/20).
-  - [ ] Add a lightweight “editor self-test”:
+  - [ ] Add a lightweight "editor self-test":
     - [ ] Load a known PG snippet into the editor.
     - [ ] Trigger render.
     - [ ] Assert the iframe reflects updated content (manual or automated test).
-  - [ ] Debounce the “Render contents” button to avoid overlapping POSTs if the user double-clicks.
+  - [ ] Debounce the "Render contents" button to avoid overlapping POSTs if the user double-clicks.
 
 - **Iframe lifecycle**
-  - [ ] Disable “Submit Answers” while a render is in-flight; re-enable on success/failure.
+  - [ ] Disable "Submit Answers" while a render is in-flight; re-enable on success/failure.
   - [ ] Handle iframe load errors (e.g. network failures) with user-visible messaging.
 
 ---
@@ -54,7 +54,7 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
   - [ ] Consider a small **Perl** or **Python** smoke test using Mojolicious or `requests` that:
     - [ ] GETs `/`.
     - [ ] Renders a sample problem.
-    - [ ] Submits an answer and checks that the response HTML contains the “results” region.
+    - [ ] Submits an answer and checks that the response HTML contains the "results" region.
 
 ---
 
@@ -63,19 +63,19 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
 - **Container build**
   - [ ] Make sure the Dockerfile:
     - [ ] Copies `lib/PG/TikZImage.pm` into a path on `@INC` and verifies it (`perl -MTikZImage -e 'print "ok\n"'`) during build.
-    - [ ] Fails the build if TikZImage (or any required PG shim) can’t load.
+    - [ ] Fails the build if TikZImage (or any required PG shim) can't load.
   - [ ] Keep maintainer metadata up to date:
     - [ ] Label with `Neil Voss` and GitHub URL instead of an email.
   - [ ] Avoid unnecessary `--no-cache` rebuilds:
     - [ ] Split Dockerfile so code changes rebuild only the upper layer, not base packages.
 
 - **run.sh**
-  - [ ] Keep the “long-running, Ctrl-C to stop” behavior:
+  - [ ] Keep the "long-running, Ctrl-C to stop" behavior:
     - [ ] Start `podman-compose up`.
     - [ ] On Ctrl-C, call `podman-compose down` to avoid zombie containers.
   - [ ] Add options:
-    - [ ] `./run.sh fast` → skip image rebuild, just `podman-compose up`.
-    - [ ] `./run.sh rebuild` → full rebuild (current behavior).
+    - [ ] `./run.sh fast` -> skip image rebuild, just `podman-compose up`.
+    - [ ] `./run.sh rebuild` -> full rebuild (current behavior).
   - [ ] Print a short summary on startup:
     - [ ] Health endpoint URL.
     - [ ] Sample PG path.
@@ -90,7 +90,7 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
     - [ ] Scenario: load `/`, type a known PG path, click Render, assert the iframe updates.
     - [ ] Scenario: type an answer, click Submit, assert:
       - A POST to `/render-api` with `submitAnswers` is made.
-      - The response includes a recognizable result (e.g., “Correct” or “Incorrect”).
+      - The response includes a recognizable result (e.g., "Correct" or "Incorrect").
   - [ ] Add a CLI test to render a batch of sample PG files:
     - [ ] Use the existing `sample*.pg` set.
     - [ ] Fail fast if any render returns an error or non-200.
@@ -107,9 +107,9 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
 
 - **JS library sanity**
   - [ ] Periodically re-evaluate:
-    - [ ] jQuery 1.12.4 → keep for now, but document that it’s “legacy, pinned for compatibility”.
-    - [ ] jQuery UI 1.12.1 → same treatment.
-    - [ ] CodeMirror 5.65.x → track only patch updates (e.g., 5.65.20) unless we explicitly migrate to CodeMirror 6.
+    - [ ] jQuery 1.12.4 -> keep for now, but document that it's "legacy, pinned for compatibility".
+    - [ ] jQuery UI 1.12.1 -> same treatment.
+    - [ ] CodeMirror 5.65.x -> track only patch updates (e.g., 5.65.20) unless we explicitly migrate to CodeMirror 6.
   - [ ] Keep a single source of truth for these versions:
     - [ ] `/health` output.
     - [ ] README.
@@ -128,10 +128,10 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
 
 - **Docs**
   - [ ] Expand `README.md` with:
-    - [ ] “Quick dev loop” instructions (edit code → `./run.sh fast` → browser).
+    - [ ] "Quick dev loop" instructions (edit code -> `./run.sh fast` -> browser).
     - [ ] How to debug submit issues (console, Network tab, `dumpProblemDebug()`).
     - [ ] Explanation of `/health` output fields.
-  - [ ] Add a short **“Conventions”** section:
+  - [ ] Add a short **"Conventions"** section:
     - [ ] How JS assets are versioned.
     - [ ] Where to add new health checks.
     - [ ] How to add a new PG macro shim like TikZImage.
@@ -145,6 +145,6 @@ A grab-bag of things that would make the renderer less fragile, easier to debug,
 
 ## 7. Nice-to-haves (later)
 
-- [ ] Consider a “safe mode” that renders problems without any external JS/CSS (no MathQuill, no fancy widgets) for debugging PG issues.
+- [ ] Consider a "safe mode" that renders problems without any external JS/CSS (no MathQuill, no fancy widgets) for debugging PG issues.
 - [ ] Add a tiny status badge on the UI that reflects `/health` (green/yellow/red based on deps and TikZ availability).
-- [ ] Explore switching from handwritten JS glue to a small module that owns the whole “render + submit + iframe” state machine.
+- [ ] Explore switching from handwritten JS glue to a small module that owns the whole "render + submit + iframe" state machine.

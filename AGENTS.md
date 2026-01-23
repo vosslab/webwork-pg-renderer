@@ -15,7 +15,7 @@
 - Manual render example (primary): `curl -X POST http://localhost:3000/ -H 'Content-Type: application/json' -d '{"sourceFilePath":"private/myproblem.pg","problemSeed":1234,"outputFormat":"classic"}'`.
 
 ## Coding Style & Conventions
-- Perl with `strict`/`warnings`; prefer early returns and lexical variables. Keep package names in sync with file paths (`RenderApp::Controller::Render` → `lib/RenderApp/Controller/Render.pm`).
+- Perl with `strict`/`warnings`; prefer early returns and lexical variables. Keep package names in sync with file paths (`RenderApp::Controller::Render` -> `lib/RenderApp/Controller/Render.pm`).
 - Match nearby indentation (4-space preferred in new code), avoid large refactors inside vendored PG/WeBWorK unless necessary.
 - Run `perltidy -pro=lib/PG/.perltidyrc <file>` when touching PG-side code.
 

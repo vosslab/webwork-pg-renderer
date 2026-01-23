@@ -76,11 +76,11 @@ If using a local install instead of docker:
 
 Modification of `baseURL` may be necessary to separate multiple services running on `SITE_HOST`, and will be used to extend `SITE_HOST`. The result of this extension will serve as the root URL for accessing the renderer (and any supplementary assets it may need to provide in support of a rendered problem). If `baseURL` is an absolute URL, it will be used verbatim -- userful if the renderer is running behind a load balancer.
 
-By default, `formURL` will further extend `baseURL`, and serve as the form-data target for user interactions with problems rendered by this service. If `formURL` is an absolute URL, it will be used verbatim -- useful if your implementation intends to sit in between the user and the renderer. 
+By default, `formURL` will further extend `baseURL`, and serve as the form-data target for user interactions with problems rendered by this service. If `formURL` is an absolute URL, it will be used verbatim -- useful if your implementation intends to sit in between the user and the renderer.
 
 ## Renderer API
 
-Can be accessed by POST to `{SITE_HOST}{baseURL}{formURL}`. 
+Can be accessed by POST to `{SITE_HOST}{baseURL}{formURL}`.
 
 By default, `localhost:3000/render-api`.
 
@@ -162,7 +162,7 @@ There are three JWT structures that the Renderer uses, each containing its prede
 
 ### ProblemJWT
 
-This JWT encapsulates the request parameters described above, under the API heading. Any value set in the JWT cannot be overridden by form-data. For example, if the problemJWT includes `isInstructor: 0`, then any subsequent interaction with the problem rendered by this JWT cannot override this setting by including `isInstructor: 1` in the form-data. 
+This JWT encapsulates the request parameters described above, under the API heading. Any value set in the JWT cannot be overridden by form-data. For example, if the problemJWT includes `isInstructor: 0`, then any subsequent interaction with the problem rendered by this JWT cannot override this setting by including `isInstructor: 1` in the form-data.
 
 ### SessionJWT
 
@@ -171,7 +171,7 @@ This JWT encapsulates a user's attempt on a problem, including:
 * count of incorrect attempts (stopping after a correct attempt, or after `showCorrectAnswers` is used)
 * the problemJWT
 
-If stored (see next), this JWT can be submitted as the sole request parameter, and the response will effectively restore the users current state of interaction with the problem (as of their last submission). 
+If stored (see next), this JWT can be submitted as the sole request parameter, and the response will effectively restore the users current state of interaction with the problem (as of their last submission).
 
 ### AnswerJWT
 
@@ -183,4 +183,4 @@ This JWT encapsulates the status of the user's interaction with the problem.
 * score
 * sessionJWT
 
-The goal here is to update the `JWTanswerURL` with the score and "state" for the user. If you have uses for additional information, please feel free to suggest as a GitHub Issue. 
+The goal here is to update the `JWTanswerURL` with the score and "state" for the user. If you have uses for additional information, please feel free to suggest as a GitHub Issue.

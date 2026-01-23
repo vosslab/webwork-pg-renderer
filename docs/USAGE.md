@@ -55,12 +55,12 @@ These settings help you decide if you are debugging or reviewing what students s
 
 ## When to use local testing
 
-| Situation | Use local testing | 
+| Situation | Use local testing |
 | --- | --- |
-| ADAPT says "error" with no details | Render locally to see line level errors | 
-| Randomized problem behaves inconsistently | Set a seed and render several variants | 
-| You changed macros or contexts | Render once locally before importing | 
-| You are trying a new interaction type | Confirm it renders in the simplest format first | 
+| ADAPT says "error" with no details | Render locally to see line level errors |
+| Randomized problem behaves inconsistently | Set a seed and render several variants |
+| You changed macros or contexts | Render once locally before importing |
+| You are trying a new interaction type | Confirm it renders in the simplest format first |
 
 ## Troubleshooting basics
 

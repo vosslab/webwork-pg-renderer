@@ -14,7 +14,7 @@
     padding: .5em 1em .5em 0;
   }
 
-  .form-row > input, 
+  .form-row > input,
   .form-row > textarea,
   .form-row > select {
     width: 100%;
@@ -30,7 +30,7 @@
   .form-row > button {
     padding: .5em;
   }
-  
+
   .form-row > button {
    background: gray;
    color: white;

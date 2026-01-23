@@ -293,13 +293,11 @@ sub jsonResponse {
 	};
 }
 
-my %DEBUG_TRUNCATE_KEYS = map { $_ => 1 } qw(problemJWT problemSource sessionJWT);
-
 sub truncate_debug_value {
 	my ($key, $value) = @_;
 	return undef unless defined $value;
 	return undef if ref $value;
-	return undef unless $DEBUG_TRUNCATE_KEYS{$key};
+	return undef unless $key =~ /JWT$/ || $key eq 'problemSource';
 
 	my $max_len  = 160;
 	my $head_len = 40;

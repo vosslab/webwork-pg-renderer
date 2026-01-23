@@ -2,6 +2,8 @@
 
 ## 2026-01-23
 - Truncate debug pretty-print output for sessionJWT, problemJWT, and problemSource values.
+- Extend debug pretty-print truncation to answerJWT.
+- Truncate any debug pretty-print fields ending in JWT, plus problemSource.
 - Replace dice emoji in changelog entry with ASCII text for compliance.
 
 ## 2026-01-21

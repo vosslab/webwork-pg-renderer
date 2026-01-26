@@ -3,11 +3,13 @@
 ## 2026-01-26
 - Add `script/HOW_TO_LINT.md` with host, container, and API lint guidance.
 - Add `script/pg-smoke.py` as a Python 3.12 alternative to the Perl smoke check.
-- Add `script/pg_lint.py` to lint or render local PG/PGML files via the renderer API.
-- Note `script/pg_lint.py` in the lint guide.
-- Align `script/pg_lint.py` argparse flags and imports with Python style rules.
-- Default `script/pg_lint.py` to a random seed when none is provided.
+- Add `script/lint_pg_via_renderer_api.py` to lint or render local PG/PGML files via the renderer API.
+- Note `script/lint_pg_via_renderer_api.py` in the lint guide.
+- Align `script/lint_pg_via_renderer_api.py` argparse flags and imports with Python style rules.
+- Default `script/lint_pg_via_renderer_api.py` to a random seed when none is provided.
 - Document the random seed behavior in `script/HOW_TO_LINT.md`.
+- Expand `script/HOW_TO_LINT.md` with TL;DR, decision table, prereqs, examples, and common errors.
+- Move host/container Perl lint sections to a maintainer-only block in `script/HOW_TO_LINT.md`.
 
 ## 2026-01-23
 - Truncate debug pretty-print output for sessionJWT, problemJWT, and problemSource values.

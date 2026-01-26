@@ -3,67 +3,55 @@
 This guide covers lint-related workflows in `script/` and how to use the renderer
 API as a lint target when you need line-level diagnostics.
 
-## Host-side Perl syntax checks
+## TL;DR
 
-Run the host-safe lint that checks the core app, safe controllers/models, and a
-PG shim without requiring a full PG/WeBWorK runtime:
-
-```bash
-./script/lint.sh
-```
-
-What it does (from `script/lint.sh`):
-- Sets `PERL5LIB` to include repo and vendored paths.
-- Installs `cpanfile` deps locally if `cpanm` is available (optional).
-- Requires `Future::AsyncAwait` 0.52+ on the host.
-- Runs `perl -c` on core app modules and safe controllers/models.
-- Skips modules that require the full PG/WeBWorK stack.
-- Optionally runs `shellcheck` on `run.sh` and `script/smoke.sh` if installed.
-
-Common failure: missing `Future::AsyncAwait` 0.52+ on the host. If you hit this,
-install it (for example via `cpanm`) or run the container lint described below.
-
-## Full Perl syntax checks (container)
-
-Run the full lint inside the container where PG/WeBWorK are available:
+If the renderer is already running on `http://localhost:3000`, lint a local file:
 
 ```bash
-podman exec pg-test ./script/lint-full.sh
+/opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
+  -i private/myproblem.pg
 ```
 
-What it does (from `script/lint-full.sh`):
-- Expects `PG_ROOT` and `WEBWORK_ROOT` (defaults to `/usr/app/lib/PG` and
-  `/usr/app/lib/WeBWorK`).
-- Sets `PERL5LIB` to include PG/WeBWorK libs.
-- Runs `perl -c` across `.pm` files, with a special pass for `AnswerIO.pm` that
-  preloads `ww_strict` and `PGUtil`.
+You should see either `No lint messages detected.` or a list of lint messages.
 
-If you are already inside the container, you can run:
+## Which script should I run?
 
-```bash
-./script/lint-full.sh
-```
+| Goal | Script | Runs where | Talks to renderer |
+| --- | --- | --- | --- |
+| Quick Perl syntax check (safe subset) | `script/lint.sh` | Host | No |
+| Full Perl syntax check (PG/WeBWorK) | `script/lint-full.sh` | Container | No |
+| Lint PG/PGML via API | `script/lint_pg_via_renderer_api.py` | Host | Yes |
+| Quick server smoke check | `script/smoke.sh` | Host | Yes |
+| Quick server smoke check (Perl) | `script/pg-smoke.pl` | Host | Yes |
+| Quick server smoke check (Python) | `script/pg-smoke.py` | Host | Yes |
 
-## Linting against the renderer API (localhost:3000)
+## Prereqs
+
+- Renderer is running at `http://localhost:3000`.
+- Your PG/PGML file is accessible (for example `private/myproblem.pg`).
+- For API linting, prefer local files and send them as `problemSource`.
+
+## Lint via the renderer API (localhost:3000)
 
 If you are using the renderer as a lint target, post to `/render-api` and parse
 the JSON response. The workflow and recommended error detection rules live in
 [docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md).
 
-The helper script `script/pg_lint.py` wraps this flow for a local PG/PGML file,
-prints the seed it uses, and defaults to a random seed when `--seed` is not set.
+The helper script `script/lint_pg_via_renderer_api.py` wraps this flow for a local
+PG/PGML file, prints the seed it uses, and defaults to a random seed when `--seed`
+is not set.
 
 Example lint run with a random seed:
 
 ```bash
-/opt/homebrew/opt/python@3.12/bin/python3.12 script/pg_lint.py \
+/opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
   -i private/myproblem.pg
 ```
 
 Example lint run with an explicit seed:
 
 ```bash
-/opt/homebrew/opt/python@3.12/bin/python3.12 script/pg_lint.py \
+/opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
   -i private/myproblem.pg -s 1234
 ```
 
@@ -90,3 +78,65 @@ Suggested parsing order (per the API doc):
 These are quick server checks, not lint passes:
 - `script/smoke.sh` hits `/health` and `POST /render-api` (set `BASE_URL`).
 - `script/pg-smoke.pl` posts a render request (set `SMOKE_BASE_URL`).
+- `script/pg-smoke.py` posts a render request (set `--base-url`).
+
+Example smoke run:
+
+```bash
+BASE_URL=http://localhost:3000 ./script/smoke.sh
+```
+
+## Maintainer-only Perl syntax checks
+
+If you are validating the Perl app code itself, use these. Most users should
+prefer the renderer API lint above.
+
+### Host lint (safe subset)
+
+Run the host-safe lint that checks the core app, safe controllers/models, and a
+PG shim without requiring a full PG/WeBWorK runtime:
+
+```bash
+./script/lint.sh
+```
+
+What it does (from `script/lint.sh`):
+- Sets `PERL5LIB` to include repo and vendored paths.
+- Installs `cpanfile` deps locally if `cpanm` is available (optional).
+- Requires `Future::AsyncAwait` 0.52+ on the host.
+- Runs `perl -c` on core app modules and safe controllers/models.
+- Skips modules that require the full PG/WeBWorK stack.
+- Optionally runs `shellcheck` on `run.sh` and `script/smoke.sh` if installed.
+
+Common failure: missing `Future::AsyncAwait` 0.52+ on the host. If you hit this,
+install it (for example via `cpanm`) or run the container lint described below.
+
+### Container lint (full PG/WeBWorK)
+
+Run the full lint inside the container where PG/WeBWorK are available:
+
+```bash
+podman exec pg-test ./script/lint-full.sh
+```
+
+What it does (from `script/lint-full.sh`):
+- Expects `PG_ROOT` and `WEBWORK_ROOT` (defaults to `/usr/app/lib/PG` and
+  `/usr/app/lib/WeBWorK`).
+- Sets `PERL5LIB` to include PG/WeBWorK libs.
+- Runs `perl -c` across `.pm` files, with a special pass for `AnswerIO.pm` that
+  preloads `ww_strict` and `PGUtil`.
+
+If you are already inside the container, you can run:
+
+```bash
+./script/lint-full.sh
+```
+
+## Common errors and fixes
+
+- `Future::AsyncAwait 0.52+ is not available`: install it on the host or run
+  `podman exec pg-test ./script/lint-full.sh`.
+- `Connection refused` or `No route to host`: start the renderer and confirm
+  `http://localhost:3000/health` returns JSON.
+- `renderedHTML missing from response`: the renderer returned an error payload;
+  rerun with `--seed` and inspect the reported lint messages.

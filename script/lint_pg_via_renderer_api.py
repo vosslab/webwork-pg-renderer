@@ -9,6 +9,8 @@ import time
 import random
 import argparse
 import urllib.request
+import html
+import re
 
 
 #============================================
@@ -105,8 +107,14 @@ def request_render(base_url: str, payload: dict) -> dict:
 	request = urllib.request.Request(url, data=body, headers=headers, method="POST")
 	with urllib.request.urlopen(request, timeout=60) as response:
 		raw_body = response.read().decode("utf-8")
-		json_body = json.loads(raw_body)
-	return json_body
+		try:
+			json_body = json.loads(raw_body)
+			return json_body
+		except json.JSONDecodeError:
+			return {
+				"renderedHTML": raw_body,
+				"warnings": ["renderer returned non-JSON response; parsing HTML only"],
+			}
 
 
 #============================================
@@ -144,6 +152,13 @@ def collect_lint_messages(response: dict) -> list[str]:
 	rendered_html = response.get("renderedHTML", "")
 	if not rendered_html:
 		return messages
+	error_match = re.search(
+		r'id=[\'"]error-block[\'"][^>]*text="([^"]+)"',
+		rendered_html,
+		flags=re.IGNORECASE,
+	)
+	if error_match:
+		messages.append(f"renderer error page: {html.unescape(error_match.group(1))}")
 
 	warning_terms = ("Translator errors", "Warning messages")
 	for term in warning_terms:

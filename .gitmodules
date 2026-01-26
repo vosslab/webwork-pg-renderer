@@ -1,4 +1,4 @@
 [submodule "lib/PG"]
   path = lib/PG
   url = https://github.com/openwebwork/pg.git
-  branch = main
+  branch = PG-2.17+

@@ -33,7 +33,12 @@ package WeBWorK::Localize;
 sub getLoc {
 	my $lang = shift;
 	my $lh = WeBWorK::Localize::I18N->get_handle($lang);
-	return sub {$lh->maketext(@_)};
+	return sub {
+		my $text = $_[0] // '';
+		return $text unless $lh;
+		my $result = eval { $lh->maketext(@_) };
+		return $@ ? $text : $result;
+	};
 }
 
 sub getLangHandle {

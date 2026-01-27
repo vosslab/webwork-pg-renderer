@@ -87,14 +87,13 @@ COPY public/css /usr/app/public/css
 RUN npm install
 
 WORKDIR /usr/app/lib/PG/htdocs
-COPY lib/PG/htdocs/package*.json /usr/app/lib/PG/htdocs/
-COPY lib/PG/htdocs/generate-assets.js /usr/app/lib/PG/htdocs/
-COPY lib/PG/htdocs/js /usr/app/lib/PG/htdocs/js
+COPY lib/PG/htdocs/ /usr/app/lib/PG/htdocs/
 RUN npm install
 
 # Now copy the full repo (changes here won't invalidate cpanm/npm layers)
 WORKDIR /usr/app
 COPY . /usr/app
+RUN gcc -O3 -w -o /usr/app/lib/PG/lib/chromatic/color /usr/app/lib/PG/lib/chromatic/color.c
 
 # Ensure runtime PG config is in place (PG expects conf/pg_config.yml under PG_ROOT).
 RUN mkdir -p /usr/app/lib/PG/conf

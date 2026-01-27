@@ -10,6 +10,20 @@
 - Document the random seed behavior in `script/HOW_TO_LINT.md`.
 - Expand `script/HOW_TO_LINT.md` with TL;DR, decision table, prereqs, examples, and common errors.
 - Move host/container Perl lint sections to a maintainer-only block in `script/HOW_TO_LINT.md`.
+- Copy `lib/PG/htdocs/third-party-assets.json` into the container so PG 2.17+ asset generation succeeds.
+- Copy the full `lib/PG/htdocs/` tree into the container to tolerate PG 2.17 and 2.19 asset layouts.
+- Add a `lib/WeBWorK/PG.pm` shim so PG 2.17 renders can run without the upstream module.
+- Make `lib/PG/lib/PGEnvironment.pm` load standalone defaults reliably and allow reads under `RENDER_ROOT`.
+- Add a minimal `lib/WeBWorK/Constants.pm` stub and lazy-load the image generator so PG 2.17 can render without webwork2 constants.
+- Default `PGEnvironment` DATA dir to the tmp folder for standalone runs.
+- Treat PG 2.17 renders as standalone by clearing `MOJO_MODE` during translator setup.
+- Add a `lib/WeBWorK/PG/Localize.pm` shim so module loading works across PG 2.17 and 2.19.
+- Fall back to returning untranslated text when `maketext` fails in `lib/WeBWorK/Localize.pm`.
+- Guard `AnswerHash::stringify_hash` when correct_value is not an object to avoid context-method errors in PG 2.17.
+- Default `sourceFilePath` from the problem path or source URL to avoid missing probFileName warnings.
+- Use a non-empty fallback (`private/inline.pg`) when the source has no path to suppress probFileName warnings.
+- Default `CORS_ORIGIN` to `http://localhost:3000` instead of `*` in `render_app.conf.dist`.
+- Prebuild `lib/PG/lib/chromatic/color` in the container to avoid runtime compiler warnings.
 
 ## 2026-01-23
 - Truncate debug pretty-print output for sessionJWT, problemJWT, and problemSource values.

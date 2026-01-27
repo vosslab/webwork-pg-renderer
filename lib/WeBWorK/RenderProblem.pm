@@ -69,6 +69,15 @@ sub process_pg_file {
 	# HACK: required for problemRandomize.pl
 	$inputs_ref->{effectiveUser} = 'red.ted';
 	$inputs_ref->{user}          = 'red.ted';
+	if (!defined $inputs_ref->{sourceFilePath} || $inputs_ref->{sourceFilePath} eq '') {
+		if ($problem->{read_path}) {
+			$inputs_ref->{sourceFilePath} = "$problem->{read_path}";
+		} elsif ($inputs_ref->{problemSourceURL}) {
+			$inputs_ref->{sourceFilePath} = $inputs_ref->{problemSourceURL};
+		} else {
+			$inputs_ref->{sourceFilePath} = 'private/inline.pg';
+		}
+	}
 
 	my $pg_start         = time;
 	my $memory_use_start = get_current_process_memory();

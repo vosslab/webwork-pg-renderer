@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-01-27
+- Redact JWT-like strings in `script/lint_pg_via_renderer_api.py` output to keep logs readable.
+- Strip hidden JWT input tags from `script/lint_pg_via_renderer_api.py` output.
+
 ## 2026-01-26
 - Add `script/HOW_TO_LINT.md` with host, container, and API lint guidance.
 - Add `script/pg-smoke.py` as a Python 3.12 alternative to the Perl smoke check.

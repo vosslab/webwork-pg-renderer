@@ -12,6 +12,16 @@ import urllib.request
 import html
 import re
 
+JWT_PATTERN = re.compile(
+	r"(?<![A-Za-z0-9_-])"
+	r"([A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"
+	r"(?![A-Za-z0-9_-])"
+)
+JWT_INPUT_PATTERN = re.compile(
+	r"<input\b[^>]*\bname=[\"'][A-Za-z]+JWT[\"'][^>]*\bvalue=[\"'][^\"']+[\"'][^>]*>",
+	re.IGNORECASE,
+)
+
 
 #============================================
 def parse_args() -> argparse.Namespace:
@@ -90,6 +100,18 @@ def build_payload(source_text: str, problem_seed: int, output_format: str) -> di
 		"outputFormat": output_format,
 	}
 	return payload
+
+
+#============================================
+def redact_jwt(text: str) -> str:
+	"""
+	Redact JWT-like strings from output to keep logs readable.
+	"""
+	if not text:
+		return text
+	redacted = JWT_INPUT_PATTERN.sub("", text)
+	redacted = JWT_PATTERN.sub("<REDACTED_JWT>", redacted)
+	return redacted
 
 
 #============================================
@@ -194,7 +216,7 @@ def print_lint_report(messages: list[str]) -> None:
 		return
 	print("Lint messages:")
 	for message in messages:
-		print(f"- {message}")
+		print(f"- {redact_jwt(message)}")
 
 
 #============================================
@@ -205,7 +227,7 @@ def print_rendered_html(response: dict) -> None:
 	rendered_html = response.get("renderedHTML", "")
 	if not rendered_html:
 		raise RuntimeError("renderedHTML missing from response")
-	print(rendered_html)
+	print(redact_jwt(rendered_html))
 
 
 #============================================

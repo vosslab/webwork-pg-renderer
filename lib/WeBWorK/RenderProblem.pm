@@ -208,6 +208,20 @@ sub standaloneRenderer {
 	my $showHints      = $showSolutions || $inputs_ref->{showHints};
 	my $displayResults = $inputs_ref->{answersSubmitted} && !$isPreview;
 	my $forceResults   = $displayResults                 && $inputs_ref->{showPartialCorrectAnswers};
+	my $permissionLevel = $inputs_ref->{permissionLevel};
+	if (!defined $permissionLevel && ($showHints || $showSolutions || $inputs_ref->{isInstructor})) {
+		$permissionLevel = 10;
+	}
+	$inputs_ref->{permissionLevel} = $permissionLevel if defined $permissionLevel;
+
+	my $displayHintsQ     = $showHints ? 1 : 0;
+	my $displaySolutionsQ = $showSolutions ? 1 : 0;
+	my $alwaysHintLevel   = $displayHintsQ ? 10 : undef;
+	my $alwaysSolutionLevel = $displaySolutionsQ ? 10 : undef;
+	$inputs_ref->{displayHintsQ}     = $displayHintsQ;
+	$inputs_ref->{displaySolutionsQ} = $displaySolutionsQ;
+	$inputs_ref->{ALWAYS_SHOW_HINT_PERMISSION_LEVEL} = $alwaysHintLevel if defined $alwaysHintLevel;
+	$inputs_ref->{ALWAYS_SHOW_SOLUTION_PERMISSION_LEVEL} = $alwaysSolutionLevel if defined $alwaysSolutionLevel;
 
 	my $pg = WeBWorK::PG->new(
 		inputs_ref              => {%$inputs_ref},                        # preserve original values
@@ -223,6 +237,11 @@ sub standaloneRenderer {
 		showHints               => $showHints,                            # default is to showHint (set in PG.pm)
 		showSolutions           => $showSolutions,
 		showCorrectAnswers      => $inputs_ref->{showCorrectAnswers} ? 2 : 0,
+		permissionLevel         => $permissionLevel,
+		displayHintsQ           => $displayHintsQ,
+		displaySolutionsQ       => $displaySolutionsQ,
+		ALWAYS_SHOW_HINT_PERMISSION_LEVEL     => $alwaysHintLevel,
+		ALWAYS_SHOW_SOLUTION_PERMISSION_LEVEL => $alwaysSolutionLevel,
 		num_of_correct_ans      => $inputs_ref->{numCorrect}   || 0,
 		num_of_incorrect_ans    => $inputs_ref->{numIncorrect} || 0,
 		displayMode             => $inputs_ref->{displayMode},

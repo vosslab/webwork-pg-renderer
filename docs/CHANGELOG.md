@@ -3,6 +3,8 @@
 ## 2026-01-27
 - Redact JWT-like strings in `script/lint_pg_via_renderer_api.py` output to keep logs readable.
 - Strip hidden JWT input tags from `script/lint_pg_via_renderer_api.py` output.
+- Restore the Show hints checkbox in the editor render controls.
+- Wire PG 2.17 hint/solution display flags and permission levels so hints and solutions render during testing.
 
 ## 2026-01-26
 - Add `script/HOW_TO_LINT.md` with host, container, and API lint guidance.

@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-01-28
+- Normalize hash-based answers before safety filtering to fix RadioButtons grading in the PG 2.17 renderer.
+
 ## 2026-01-27
 - Redact JWT-like strings in `script/lint_pg_via_renderer_api.py` output to keep logs readable.
 - Strip hidden JWT input tags from `script/lint_pg_via_renderer_api.py` output.

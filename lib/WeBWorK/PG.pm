@@ -26,6 +26,28 @@ sub _patch_answerhash {
     $ANSWERHASH_PATCHED = 1;
 }
 
+sub _wrap_safety_filter {
+    my ($translator) = @_;
+    return if $translator->{render_app_safety_filter_wrapped};
+
+    my $orig_filter = $translator->rf_safety_filter;
+    return unless $orig_filter && ref($orig_filter) eq 'CODE';
+
+    $translator->rf_safety_filter(sub {
+        my $answer = shift;
+        if (ref($answer) eq 'HASH') {
+            my @tmp = ();
+            foreach my $key (sort keys %{$answer}) {
+                push @tmp, $key if defined $answer->{$key} && $answer->{$key} eq 'CHECKED';
+            }
+            $answer = join("\0", @tmp);
+        }
+        return $orig_filter->($answer);
+    });
+
+    $translator->{render_app_safety_filter_wrapped} = 1;
+}
+
 sub _require_translator {
     return if $TRANSLATOR_LOADED;
 
@@ -105,6 +127,7 @@ sub new_helper {
         delete $ENV{MOJO_MODE};
 
         $translator = WeBWorK::PG::Translator->new;
+        _wrap_safety_filter($translator);
 
         if (ref($pg_envir->{modules}) eq 'ARRAY') {
             for my $module_packages_ref (@{ $pg_envir->{modules} }) {

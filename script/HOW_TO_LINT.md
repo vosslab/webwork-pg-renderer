@@ -5,14 +5,15 @@ API as a lint target when you need line-level diagnostics.
 
 ## TL;DR
 
-If the renderer is already running on `http://localhost:3000`, lint a local file:
+If the renderer is already running on `http://localhost:3000`, render HTML for a local file:
 
 ```bash
 /opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
-  -i private/myproblem.pg
+  -i private/myproblem.pg -r > /tmp/pg_render.html
 ```
 
-You should see either `No lint messages detected.` or a list of lint messages.
+Open the saved HTML in a browser and verify the question renders correctly. If you
+need a quick lint-only pass, omit `-r` to print lint messages instead of HTML.
 
 ## Which script should I run?
 
@@ -31,28 +32,28 @@ You should see either `No lint messages detected.` or a list of lint messages.
 - Your PG/PGML file is accessible (for example `private/myproblem.pg`).
 - For API linting, prefer local files and send them as `problemSource`.
 
-## Lint via the renderer API (localhost:3000)
+## Render HTML via the renderer API (primary)
 
-If you are using the renderer as a lint target, post to `/render-api` and parse
-the JSON response. The workflow and recommended error detection rules live in
-[docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md).
+WeBWorK questions are meant for a web browser, so the primary test is rendered
+HTML. Use the renderer API to get HTML, then verify it in a browser. This catches
+layout issues, missing assets, and display regressions that JSON-only checks miss.
 
 The helper script `script/lint_pg_via_renderer_api.py` wraps this flow for a local
 PG/PGML file, prints the seed it uses, and defaults to a random seed when `--seed`
 is not set.
 
-Example lint run with a random seed:
+Example HTML render with a random seed:
 
 ```bash
 /opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
-  -i private/myproblem.pg
+  -i private/myproblem.pg -r > /tmp/pg_render.html
 ```
 
-Example lint run with an explicit seed:
+Example HTML render with an explicit seed:
 
 ```bash
 /opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
-  -i private/myproblem.pg -s 1234
+  -i private/myproblem.pg -s 1234 -r > /tmp/pg_render.html
 ```
 
 Example request against a local server:
@@ -67,7 +68,16 @@ curl -X POST "http://localhost:3000/render-api" \
   }'
 ```
 
-Suggested parsing order (per the API doc):
+If you need to lint only (no HTML), omit `-r` and the script prints lint messages.
+
+## JSON fallback (not recommended)
+
+JSON is available for automation, but it is a fallback. Prefer HTML for manual
+checks and QA because it reflects the browser experience.
+
+If you must parse JSON, the workflow and recommended error detection rules live
+in [docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md). Suggested parsing
+order (per the API doc):
 1) Check `flags.error_flag`.
 2) Scan `debug.pg_warn`.
 3) Scan `debug.internal` and `debug.debug`.

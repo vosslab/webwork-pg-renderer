@@ -1,5 +1,7 @@
 OTHER_REPOS-do_not_commit/
 *.DS_Store
+# lib/PG is cloned in Dockerfile; not tracked as a submodule
+lib/PG/
 .cpan
 .cpanm/
 local/

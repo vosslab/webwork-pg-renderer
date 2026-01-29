@@ -3,12 +3,6 @@ set -euo pipefail
 
 IMAGE_NAME=pg-renderer
 
-# Ensure PG submodule is present (required for assets under lib/PG/htdocs).
-if [[ ! -d "lib/PG/htdocs" ]]; then
-  echo "Initializing PG submodule..."
-  git submodule update --init --recursive lib/PG
-fi
-
 # On Ctrl-C or TERM, stop the compose stack.
 cleanup() {
   echo

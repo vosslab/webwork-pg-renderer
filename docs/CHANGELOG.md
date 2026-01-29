@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-01-29
+- Remove lib/PG git submodule; now cloned directly in Dockerfile at PG-2.17+ tag.
+- Add lib/PG/ to .gitignore since it is no longer tracked as a submodule.
+- Update Dockerfile and Dockerfile_with_OPL to clone lib/PG during image build.
+- Update README.md LOCAL INSTALL section to reflect direct PG clone instead of submodule.
+- Remove PG submodule check from run.sh since lib/PG is now built into the container.
+
 ## 2026-01-28
 - Normalize hash-based answers before safety filtering to fix RadioButtons grading in the PG 2.17 renderer.
 

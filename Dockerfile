@@ -86,8 +86,11 @@ COPY public/js /usr/app/public/js
 COPY public/css /usr/app/public/css
 RUN npm install
 
+# Clone PG at the tagged release (no longer using git submodule)
+WORKDIR /usr/app/lib
+RUN git clone --depth 1 --branch PG-2.17+ https://github.com/openwebwork/pg.git PG
+
 WORKDIR /usr/app/lib/PG/htdocs
-COPY lib/PG/htdocs/ /usr/app/lib/PG/htdocs/
 RUN npm install
 
 # Now copy the full repo (changes here won't invalidate cpanm/npm layers)

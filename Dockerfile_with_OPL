@@ -49,6 +49,11 @@ RUN apt-get update \
 RUN cpanm install Mojo::Base Statistics::R::IO::Rserve Date::Format Future::AsyncAwait Crypt::JWT IO::Socket::SSL CGI::Cookie \
     && rm -fr ./cpanm /root/.cpanm /tmp/*
 
+# Clone PG at the tagged release (no longer using git submodule)
+WORKDIR /usr/app/lib
+RUN git clone --depth 1 --branch PG-2.17+ https://github.com/openwebwork/pg.git PG
+
+WORKDIR /usr/app
 ENV MOJO_MODE=production
 
 # Clones the OPL into the container. Should be the only difference from ./Dockerfile

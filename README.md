@@ -43,8 +43,9 @@ A default configuration file is included in the container, but it can be overrid
 
 If using a local install instead of docker:
 
-* Clone the renderer and its submodules: `git clone --recursive https://github.com/openwebwork/renderer`
+* Clone the renderer: `git clone https://github.com/openwebwork/renderer`
 * Enter the project directory: `cd renderer`
+* Clone the PG library: `git clone --depth 1 --branch PG-2.17+ https://github.com/openwebwork/pg.git lib/PG`
 * Install Perl dependencies listed in Dockerfile (CPANMinus recommended)
 * clone webwork-open-problem-library into the provided stub ./webwork-open-problem-library
   * `git clone https://github.com/openwebwork/webwork-open-problem-library ./webwork-open-problem-library`

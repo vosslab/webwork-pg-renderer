@@ -18,7 +18,9 @@ echo "Starting containers with podman-compose..."
 podman-compose up -d --force-recreate
 
 # Optional: open the UI in a browser.
+sleep 0.1
 open "http://localhost:3000/health/" || true
+sleep 0.1 # open needs a pause between calls
 open "http://localhost:3000/" || true
 echo "Sample problem path: private/myproblem.pg"
 

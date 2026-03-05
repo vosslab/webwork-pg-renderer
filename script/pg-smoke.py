@@ -70,6 +70,9 @@ def request_render(base_url: str, payload: dict) -> dict:
 	Post to /render-api and return the decoded JSON response.
 	"""
 	url = f"{base_url}/render-api"
+	# Only allow http and https schemes (bandit B310)
+	if not url.startswith(("http://", "https://")):
+		raise ValueError(f"URL scheme must be http or https, got: {url}")
 	body = json.dumps(payload).encode("utf-8")
 	headers = {"Content-Type": "application/json"}
 
@@ -77,7 +80,7 @@ def request_render(base_url: str, payload: dict) -> dict:
 	time.sleep(random.random())
 
 	request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-	with urllib.request.urlopen(request, timeout=30) as response:
+	with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 - scheme validated above
 		raw_body = response.read().decode("utf-8")
 		json_body = json.loads(raw_body)
 	return json_body

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-05
+
+### Fixes and Maintenance
+- Add http/https scheme validation to `script/pg-smoke.py` before `urlopen` to fix bandit B310 finding.
+
 ## 2026-01-29
 - Remove lib/PG git submodule; now cloned directly in Dockerfile at PG-2.17+ tag.
 - Add lib/PG/ to .gitignore since it is no longer tracked as a submodule.

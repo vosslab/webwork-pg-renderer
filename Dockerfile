@@ -89,6 +89,9 @@ RUN npm install
 # Clone PG at the tagged release (no longer using git submodule)
 WORKDIR /usr/app/lib
 RUN git clone --depth 1 --branch PG-2.17+ https://github.com/openwebwork/pg.git PG
+# Backport parserCheckboxList.pl (missing from PG-2.17+ branch, present in develop/2.18+)
+RUN curl -fsSL https://raw.githubusercontent.com/openwebwork/pg/aee8a27b/macros/parsers/parserCheckboxList.pl \
+    -o PG/macros/parserCheckboxList.pl
 
 WORKDIR /usr/app/lib/PG/htdocs
 RUN npm install

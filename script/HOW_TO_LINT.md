@@ -92,13 +92,22 @@ curl -X POST "http://localhost:3000/render-api" \
 ## JSON mode
 
 JSON mode (`--json`) is a first-class output for automation and agents. It prints
-the full renderer response, pretty-printed and JWT-redacted, to stdout. Parsing
-order (per [docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md)):
+the full renderer response, pretty-printed, to stdout. Parsing order
+(per [docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md)):
 
 1) Check `flags.error_flag`.
 2) Scan `debug.pg_warn`.
 3) Scan `debug.internal` and `debug.debug`.
 4) If needed, scan `renderedHTML` for warning blocks.
+
+`--json` drops the auth-token keys (`JWT`, `sessionJWT`, `answerJWT`,
+`problemJWT`) from the response entirely -- they were ~2 KB of base64 per
+request and never useful for linting. Any stray inline JWT surviving inside
+other string fields is replaced with `<REDACTED_JWT>` as a backstop.
+
+`--no-html` additionally omits the `renderedHTML` key from `--json` output when
+you only need the structured fields (`flags`, `debug`, etc.). It errors at
+argparse time if combined with `--html`.
 
 Note that `--json` exits 0 on HTTP success even when `flags.error_flag` is
 truthy; callers are expected to inspect the payload themselves. Default lint

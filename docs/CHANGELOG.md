@@ -3,6 +3,20 @@
 ## 2026-04-22
 
 ### Behavior or Interface Changes
+- `script/lint_pg_via_renderer_api.py --json` now drops the auth-token keys
+  `JWT`, `sessionJWT`, `answerJWT`, and `problemJWT` from the response before
+  printing, rather than masking each token with `<REDACTED_JWT>`. The
+  previously observed ~2 KB of base64 at the top of the JSON dump (the
+  2-part `problem` token inside the `JWT` wrapper that the three-dot regex
+  could not match) is gone. Breaking change for any downstream caller that
+  parsed those keys out of `--json` output; none are expected. `redact_tree`
+  remains as a string-level backstop for any stray inline JWT in other
+  fields, and continues to strip `<input name="...JWT" ...>` tags embedded
+  inside `renderedHTML`.
+- Added `--no-html` flag that, in `--json` mode, additionally drops the
+  `renderedHTML` key from the output for workflows that only need the
+  structured lint fields. Errors at argparse time if combined with `--html`
+  or lint mode.
 - `script/lint_pg_via_renderer_api.py` now sends `_format=json` on every render
   request so structured lint fields (`flags.error_flag`, `debug.pg_warn`,
   `debug.internal`, `debug.debug`) populate. The prose lint report in default

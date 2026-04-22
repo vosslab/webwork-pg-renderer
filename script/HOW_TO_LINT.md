@@ -9,11 +9,12 @@ If the renderer is already running on `http://localhost:3000`, render HTML for a
 
 ```bash
 /opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
-  -i private/myproblem.pg -r > /tmp/pg_render.html
+  -i private/myproblem.pg --html > /tmp/pg_render.html
 ```
 
-Open the saved HTML in a browser and verify the question renders correctly. If you
-need a quick lint-only pass, omit `-r` to print lint messages instead of HTML.
+Open the saved HTML in a browser and verify the question renders correctly. For a
+quick lint-only pass, run with no mode flag (default) to print lint messages. For
+structured machine-readable output, pass `--json` and parse with `jq`.
 
 ## Which script should I run?
 
@@ -39,24 +40,43 @@ HTML. Use the renderer API to get HTML, then verify it in a browser. This catche
 layout issues, missing assets, and display regressions that JSON-only checks miss.
 
 The helper script `script/lint_pg_via_renderer_api.py` wraps this flow for a local
-PG/PGML file, prints the seed it uses, and defaults to a random seed when `--seed`
-is not set.
+PG/PGML file. In default (lint) mode it prints the seed it uses and defaults to a
+random seed when `--seed` is not set. The seed notice is suppressed in `--json`
+and `--html` modes so their stdout is clean.
+
+The helper always requests `_format=json` from the renderer, so all three modes
+project from the same JSON response (`renderedHTML` is a string field inside the
+JSON payload).
 
 Example HTML render with a random seed:
 
 ```bash
 /opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
-  -i private/myproblem.pg -r > /tmp/pg_render.html
+  -i private/myproblem.pg --html > /tmp/pg_render.html
 ```
 
 Example HTML render with an explicit seed:
 
 ```bash
 /opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
-  -i private/myproblem.pg -s 1234 -r > /tmp/pg_render.html
+  -i private/myproblem.pg -s 1234 --html > /tmp/pg_render.html
 ```
 
-Example request against a local server:
+Example default lint pass:
+
+```bash
+/opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
+  -i private/myproblem.pg
+```
+
+Example machine-readable JSON pass:
+
+```bash
+/opt/homebrew/opt/python@3.12/bin/python3.12 script/lint_pg_via_renderer_api.py \
+  -i private/myproblem.pg --json | jq '.flags.error_flag, .debug.pg_warn'
+```
+
+Example direct curl request against a local server:
 
 ```bash
 curl -X POST "http://localhost:3000/render-api" \
@@ -64,24 +84,25 @@ curl -X POST "http://localhost:3000/render-api" \
   -d '{
     "sourceFilePath": "private/myproblem.pg",
     "problemSeed": 1234,
-    "outputFormat": "classic"
+    "outputFormat": "debug",
+    "_format": "json"
   }'
 ```
 
-If you need to lint only (no HTML), omit `-r` and the script prints lint messages.
+## JSON mode
 
-## JSON fallback (not recommended)
+JSON mode (`--json`) is a first-class output for automation and agents. It prints
+the full renderer response, pretty-printed and JWT-redacted, to stdout. Parsing
+order (per [docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md)):
 
-JSON is available for automation, but it is a fallback. Prefer HTML for manual
-checks and QA because it reflects the browser experience.
-
-If you must parse JSON, the workflow and recommended error detection rules live
-in [docs/RENDERER_API_USAGE.md](../docs/RENDERER_API_USAGE.md). Suggested parsing
-order (per the API doc):
 1) Check `flags.error_flag`.
 2) Scan `debug.pg_warn`.
 3) Scan `debug.internal` and `debug.debug`.
 4) If needed, scan `renderedHTML` for warning blocks.
+
+Note that `--json` exits 0 on HTTP success even when `flags.error_flag` is
+truthy; callers are expected to inspect the payload themselves. Default lint
+mode does raise on error.
 
 ## Smoke checks (not lint)
 

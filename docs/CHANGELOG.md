@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-04-22
+
+### Behavior or Interface Changes
+- `script/lint_pg_via_renderer_api.py` now sends `_format=json` on every render
+  request so structured lint fields (`flags.error_flag`, `debug.pg_warn`,
+  `debug.internal`, `debug.debug`) populate. The prose lint report in default
+  mode becomes richer as a result.
+- Added mutually exclusive `--json` and `--html` mode flags. Default (no mode
+  flag) is still the human-readable lint report. `--json` prints the full
+  renderer response, pretty-printed and JWT-redacted, for agents and
+  automation. `--html` prints `response["renderedHTML"]`, JWT-redacted.
+- Renamed `-o/--output-format` to `-t/--template` and restricted values to
+  `static`, `default`, and `debug`. The default template changes from
+  `classic` to `debug` to maximize diagnostic output in a linting workflow.
+  This is a breaking behavior change for callers that relied on the previous
+  default, independent of the flag rename.
+- The `Using random seed: <int>` notice is suppressed in `--json` and
+  `--html` modes so their stdout is clean, parseable payload. It still
+  prints in lint mode.
+- Mirrored the updated script to the `webwork-writer` skill copy at
+  `vosslab-skills/skills/webwork-writer/references/scripts/lint_pg_via_renderer_api.py`;
+  the two files are byte-identical.
+
+### Removals and Deprecations
+- Removed `-r/--render`, `-n/--no-render`, `-o/--output-format`, and
+  `-b/--base-url` from `script/lint_pg_via_renderer_api.py`. Wrappers,
+  Makefiles, CI jobs, and agent prompts that used those flags must update:
+  `-r` becomes `--html`; `-n` drops entirely (it only named the default);
+  `-o classic|ptx|raw` drops or remaps to `-t static|default|debug`;
+  `-b` drops (the script now targets `http://localhost:3000` directly).
+
+### Fixes and Maintenance
+- Updated `script/HOW_TO_LINT.md` to reflect the new CLI and JSON-first
+  response shape.
+- Updated `vosslab-skills/skills/webwork-writer/references/linting.md` to
+  document `--json`, `--html`, and the structured response fields.
+
 ## 2026-03-05
 
 ### Fixes and Maintenance

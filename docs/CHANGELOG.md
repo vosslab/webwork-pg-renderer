@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-08-08
+
+### Fixes and Maintenance
+- Build the main Podman image with Node.js 24 LTS instead of Ubuntu 24.04's
+  Node.js 18 package so the current ESM-based asset dependencies can load.
+- Migrate `public/generate-assets.js` from CommonJS to native ESM and use the
+  current yargs parser API required by yargs 18.
+- Refresh the public asset lockfile and use `npm ci` during the image build so
+  `./run.sh` installs the dependency versions recorded in the repository.
+- Add `devel/dist_clean.sh` with a safe preview mode for removing rebuildable
+  dependency trees, generated renderer assets, and cross-language build caches
+  while preserving runtime problems, logs, and Git metadata.
+
 ## 2026-04-22
 
 ### Behavior or Interface Changes
@@ -110,7 +123,7 @@
 - Increase file path input maximum width by adjusting navbar space calculation
 
 ## 2026-01-15
-- Add [docs/RENDERER_API_USAGE.md](docs/RENDERER_API_USAGE.md) with HTTP API usage and pglint notes.
+- Add [RENDERER_API_USAGE.md](RENDERER_API_USAGE.md) with HTTP API usage and pglint notes.
 - Expand the API usage doc with response examples, JWT flow, and lint key guidance.
 - Document common parameter defaults and `problemSourceURL` response expectations.
 - Add form-encoded and base64 `problemSource` examples to the API usage doc.
@@ -133,5 +146,5 @@
 - Update `README.md` to align smoke/testing references and architecture doc links.
 - Add a short "How rendering works" section to `README.md`.
 - Remove emoji from `README.md` headings.
-- Add an instructor-focused [docs/USAGE.md](docs/USAGE.md) guide for local testing.
+- Add an instructor-focused [USAGE.md](USAGE.md) guide for local testing.
 - Link the instructor guide from `README.md`.

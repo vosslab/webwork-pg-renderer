@@ -146,7 +146,7 @@ Should show `playwright@x.x.x` under the project.
 ## File conventions
 
 - Put Playwright scripts in `tests/` at the repo root. Mixing with pytest files
-  (`test_*.py`) is fine; see [docs/REPO_STYLE.md](docs/REPO_STYLE.md).
+  (`test_*.py`) is fine; see [REPO_STYLE.md](REPO_STYLE.md).
 - Use `.mjs` extension for ES module scripts (e.g., `tests/test_game_ui.mjs`).
 - Put screenshots in `test-results/` (gitignored).
 - `devel/` is reserved for one-off developer tools, not bulk test files.

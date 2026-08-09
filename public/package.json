@@ -2,6 +2,10 @@
 	"name": "renderer.javascript_package_manager",
 	"description": "Third party javascript for Standalone Renderer",
 	"license": "GPL-2.0+",
+	"type": "module",
+	"engines": {
+		"node": ">=24.11.0"
+	},
 	"scripts": {
 		"generate-assets": "node generate-assets",
 		"prepare": "npm run generate-assets"

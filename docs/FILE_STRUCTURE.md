@@ -35,16 +35,16 @@
 - OS and editor artifacts like `.DS_Store`, `.idea/`, `*.swp`, and `*.swo` are ignored.
 
 ## Documentation map
-- Documentation lives under `docs/` and follows [docs/MARKDOWN_STYLE.md](MARKDOWN_STYLE.md) and
-  [docs/REPO_STYLE.md](REPO_STYLE.md).
+- Documentation lives under `docs/` and follows [MARKDOWN_STYLE.md](MARKDOWN_STYLE.md) and
+  [REPO_STYLE.md](REPO_STYLE.md).
 - Root docs include [README.md](../README.md), [AGENTS.md](../AGENTS.md),
   [LICENSE.md](../LICENSE.md), and [TODO.md](../TODO.md).
-- Change history lives in [docs/CHANGELOG.md](CHANGELOG.md).
+- Change history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Where to add new work
 - Add app logic in `lib/RenderApp.pm`, `lib/RenderApp/Controller/`, and `lib/RenderApp/Model/`.
 - Add UI templates in `templates/` and static assets in `public/`.
 - Add scripts in `script/` and test helpers in `tests/`.
 - Add local PG problems in `private/` (served as `private/`).
-- Add documentation in `docs/` with ALL CAPS filenames per [docs/REPO_STYLE.md](REPO_STYLE.md).
+- Add documentation in `docs/` with ALL CAPS filenames per [REPO_STYLE.md](REPO_STYLE.md).
 - Avoid edits to `lib/PG/` and `lib/WeBWorK/` unless engine changes are required.

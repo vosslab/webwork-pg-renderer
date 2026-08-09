@@ -2,19 +2,21 @@
 
 /* eslint-env node */
 
-const yargs = require('yargs');
-const chokidar = require('chokidar');
-const path = require('path');
-const { minify } = require('terser');
-const fs = require('fs');
-const crypto = require('crypto');
-const sass = require('sass');
-const autoprefixer = require('autoprefixer');
-const postcss = require('postcss');
-const rtlcss = require('rtlcss');
-const cssMinify = require('cssnano');
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 
-const argv = yargs
+import yargs from 'yargs';
+import chokidar from 'chokidar';
+import { hideBin } from 'yargs/helpers';
+import { minify } from 'terser';
+import * as sass from 'sass';
+import autoprefixer from 'autoprefixer';
+import postcss from 'postcss';
+import rtlcss from 'rtlcss';
+import cssMinify from 'cssnano';
+
+const argv = yargs(hideBin(process.argv))
 	.usage('$0 Options').version(false).alias('help', 'h').wrap(100)
 	.option('enable-sourcemaps', {
 		alias: 's',
@@ -31,9 +33,10 @@ const argv = yargs
 		description: 'Delete all generated files.',
 		type: 'boolean'
 	})
-	.argv;
+	.parse();
 
-const assetFile = path.resolve(__dirname, 'static-assets.json');
+const scriptDirectory = import.meta.dirname;
+const assetFile = path.resolve(scriptDirectory, 'static-assets.json');
 const assets = {};
 
 const cleanDir = (dir) => {
@@ -61,7 +64,7 @@ const processFile = async (file, _details) => {
 			// Process javascript
 			if (!ready) console.log(`\x1b[32mProcessing ${file}\x1b[0m`);
 
-			const filePath = path.resolve(__dirname, file);
+			const filePath = path.resolve(scriptDirectory, file);
 
 			const contents = fs.readFileSync(filePath, 'utf8');
 
@@ -86,12 +89,12 @@ const processFile = async (file, _details) => {
 			contentHash.update(minJS);
 
 			const newVersion = file.replace(/\.js$/, `.${contentHash.digest('hex').substring(0, 8)}.min.js`);
-			fs.writeFileSync(path.resolve(__dirname, newVersion), minJS);
+			fs.writeFileSync(path.resolve(scriptDirectory, newVersion), minJS);
 
 			// Remove a previous version if the content hash is different.
 			if (assets[file] && assets[file] !== newVersion) {
 				console.log(`\x1b[32mUpdated ${file}.\x1b[0m`);
-				const oldFileFullPath = path.resolve(__dirname, assets[file]);
+				const oldFileFullPath = path.resolve(scriptDirectory, assets[file]);
 				if (fs.existsSync(oldFileFullPath)) fs.unlinkSync(oldFileFullPath);
 			} else if (ready) {
 				console.log(`\x1b[32mProcessed ${file}.\x1b[0m`);
@@ -102,7 +105,7 @@ const processFile = async (file, _details) => {
 			// Process scss or css.
 			if (!ready) console.log(`\x1b[32mProcessing ${file}\x1b[0m`);
 
-			const filePath = path.resolve(__dirname, file);
+			const filePath = path.resolve(scriptDirectory, file);
 
 			// This works for both sass/scss files and css files.
 			let result;
@@ -131,14 +134,14 @@ const processFile = async (file, _details) => {
 			contentHash.update(minCSS);
 
 			const newVersion = file.replace(/\.s?css$/, `.${contentHash.digest('hex').substring(0, 8)}.min.css`);
-			fs.writeFileSync(path.resolve(__dirname, newVersion), minCSS);
+			fs.writeFileSync(path.resolve(scriptDirectory, newVersion), minCSS);
 
 			const assetName = file.replace(/\.scss$/, '.css');
 
 			// Remove a previous version if the content hash is different.
 			if (assets[assetName] && assets[assetName] !== newVersion) {
 				console.log(`\x1b[32mUpdated ${file}.\x1b[0m`);
-				const oldFileFullPath = path.resolve(__dirname, assets[assetName]);
+				const oldFileFullPath = path.resolve(scriptDirectory, assets[assetName]);
 				if (fs.existsSync(oldFileFullPath)) fs.unlinkSync(oldFileFullPath);
 			} else if (ready) {
 				console.log(`\x1b[32mProcessed ${file}.\x1b[0m`);
@@ -161,14 +164,14 @@ const processFile = async (file, _details) => {
 
 			const newRTLVersion = file.replace(/\.s?css$/,
 				`.rtl.${rtlContentHash.digest('hex').substring(0, 8)}.min.css`);
-			fs.writeFileSync(path.resolve(__dirname, newRTLVersion), rtlCSS);
+			fs.writeFileSync(path.resolve(scriptDirectory, newRTLVersion), rtlCSS);
 
 			const rtlAssetName = file.replace(/\.s?css$/, '.rtl.css');
 
 			// Remove a previous version if the content hash is different.
 			if (assets[rtlAssetName] && assets[rtlAssetName] !== newRTLVersion) {
 				console.log(`\x1b[32mUpdated RTL css for ${file}.\x1b[0m`);
-				const oldFileFullPath = path.resolve(__dirname, assets[rtlAssetName]);
+				const oldFileFullPath = path.resolve(scriptDirectory, assets[rtlAssetName]);
 				if (fs.existsSync(oldFileFullPath)) fs.unlinkSync(oldFileFullPath);
 			} else if (ready) {
 				console.log(`\x1b[32mProcessed RTL css for ${file}.\x1b[0m`);
@@ -188,8 +191,8 @@ const processFile = async (file, _details) => {
 	if (ready) fs.writeFileSync(assetFile, JSON.stringify(assets));
 };
 
-const jsDir = path.resolve(__dirname, 'js/apps');
-const cssDir = path.resolve(__dirname, 'css');
+const jsDir = path.resolve(scriptDirectory, 'js/apps');
+const cssDir = path.resolve(scriptDirectory, 'css');
 
 // Remove generated files from previous builds.
 cleanDir(jsDir);
@@ -201,7 +204,7 @@ if (argv.clean) process.exit();
 if (argv.watchFiles) console.log('\x1b[32mEstablishing watches and performing initial build.\x1b[0m');
 chokidar.watch(['js/apps', 'css'], {
 	ignored: /layouts|\.min\.(js|css)$/,
-	cwd: __dirname, // Make sure all paths are given relative to the htdocs directory.
+	cwd: scriptDirectory, // Make sure all paths are given relative to the htdocs directory.
 	usePolling: true, // Needed to get changes to symlinks.
 	interval: 500,
 	awaitWriteFinish: { stabilityThreshold: 500 },
@@ -212,7 +215,7 @@ chokidar.watch(['js/apps', 'css'], {
 		// If a file is deleted, then also delete the corresponding generated file.
 		if (assets[file]) {
 			console.log(`\x1b[34mDeleting minified file for ${file}.\x1b[0m`);
-			fs.unlinkSync(path.resolve(__dirname, assets[file]));
+			fs.unlinkSync(path.resolve(scriptDirectory, assets[file]));
 			delete assets[file];
 		}
 	})

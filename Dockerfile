@@ -1,3 +1,5 @@
+FROM node:24-bookworm-slim AS node_runtime
+
 FROM ubuntu:24.04
 LABEL org.opencontainers.image.source="https://github.com/vossab/webwork-pg-renderer"
 LABEL maintainer="Neil Voss (@vossab) <https://github.com/vossab>"
@@ -8,16 +10,17 @@ ENV TZ=America/Chicago
 # Ensure Perl finds PG, WeBWorK, and app libs.
 ENV PERL5LIB=/usr/app/lib/PG:/usr/app/lib/WeBWorK/lib:/usr/app/lib:$PERL5LIB
 
+# Use the current Node.js LTS instead of Ubuntu's Node.js 18 package.
+COPY --from=node_runtime /usr/local/ /usr/local/
+
 # OS/system-level deps and XS-heavy Perl modules (prefer apt for these)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --no-install-suggests \
     apt-utils \
     git \
     gcc \
-    npm \
     make \
     curl \
-    nodejs \
     dvipng \
     openssl \
     libc-dev \
@@ -84,7 +87,9 @@ COPY public/package*.json /usr/app/public/
 COPY public/generate-assets.js /usr/app/public/
 COPY public/js /usr/app/public/js
 COPY public/css /usr/app/public/css
-RUN npm install
+RUN node --version \
+    && npm --version \
+    && npm ci
 
 # Clone PG at the tagged release (no longer using git submodule)
 WORKDIR /usr/app/lib

@@ -39,10 +39,11 @@ Run `podman-compose down` from the checkout to stop the server.
 Explore six questions by Neil R. Voss from [Biology Problems](https://github.com/vosslab/biology-problems).
 Select a screenshot to open it at full size.
 
-| Structures | Experimental figures | Answer formats |
-| --- | --- | --- |
-| **Fischer projection**<br>[![Carbohydrate structure with classification choices](docs/screenshots/gallery_fischer.webp)](docs/screenshots/gallery_fischer.webp) | **Protein ladder**<br>[![Colored electrophoresis bands for estimating molecular weight](docs/screenshots/gallery_ladder.webp)](docs/screenshots/gallery_ladder.webp) | **Amino acid matching**<br>[![Amino acid properties with matching controls](docs/screenshots/gallery_amino_matching.webp)](docs/screenshots/gallery_amino_matching.webp) |
-| **Membrane transporter**<br>[![Membrane transport diagram with transporter classification choices](docs/screenshots/gallery_transporter.webp)](docs/screenshots/gallery_transporter.webp) | **Enzyme inhibition**<br>[![Michaelis-Menten curves comparing reactions with and without an inhibitor](docs/screenshots/gallery_inhibitor.webp)](docs/screenshots/gallery_inhibitor.webp) | **Estimate K<sub>M</sub>**<br>[![Michaelis-Menten data table with a numeric answer field](docs/screenshots/gallery_kinetics_table.webp)](docs/screenshots/gallery_kinetics_table.webp) |
+| Structures and diagrams | Data and answer formats |
+| --- | --- |
+| **Fischer projection**<br>[![Carbohydrate structure with classification choices](docs/screenshots/gallery_fischer.webp)](docs/screenshots/gallery_fischer.webp) | **Estimate K<sub>M</sub>**<br>[![Michaelis-Menten data table with a numeric answer field](docs/screenshots/gallery_kinetics_table.webp)](docs/screenshots/gallery_kinetics_table.webp) |
+| **Protein ladder**<br>[![Colored electrophoresis bands for estimating molecular weight](docs/screenshots/gallery_ladder.webp)](docs/screenshots/gallery_ladder.webp) | **Enzyme inhibition**<br>[![Michaelis-Menten curves comparing reactions with and without an inhibitor](docs/screenshots/gallery_inhibitor.webp)](docs/screenshots/gallery_inhibitor.webp) |
+| **Membrane transporter**<br>[![Membrane transport diagram with transporter classification choices](docs/screenshots/gallery_transporter.webp)](docs/screenshots/gallery_transporter.webp) | **Amino acid matching**<br>[![Amino acid properties with matching controls](docs/screenshots/gallery_amino_matching.webp)](docs/screenshots/gallery_amino_matching.webp) |
 
 ## Test your own questions
 

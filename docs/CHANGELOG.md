@@ -20,6 +20,7 @@
 - Lead the README with a worked DNA question, fresh editor and library screenshots, and a
   Podman quick start. Document how to recapture both views and find the full API reference.
 - Add a six-problem screenshot gallery to show the renderer's diagrams, data, and answer inputs.
+- Arrange the gallery in two columns with screenshots paired by height.
 
 ### Removals and Deprecations
 

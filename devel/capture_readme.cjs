@@ -51,7 +51,7 @@ async function main() {
   try {
     const editor = await browser.newPage({ viewport: { width: 1360, height: 790 }, deviceScaleFactor: 1 });
     await openSample(editor);
-    await editor.screenshot({ path: resolve(outputDir, 'renderer_editor.png') });
+    await editor.screenshot({ path: resolve(outputDir, 'renderer_editor.png'), fullPage: true });
     await editor.close();
 
     const library = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });

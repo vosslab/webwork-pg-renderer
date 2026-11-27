@@ -75,6 +75,11 @@ textarea {
   padding: 0.35rem 0.6rem;
 }
 
+.app-nav a:not([aria-current="page"]) {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .app-nav a:hover,
 .app-nav a[aria-current="page"] {
   background: #ffffff;

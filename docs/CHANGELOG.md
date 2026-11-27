@@ -6,6 +6,8 @@
 
 - Refresh the editor, problem library, and HTML error pages with responsive layouts, keyboard
   controls, and inline feedback for file, render, and tag operations.
+- Distinguish editor buttons, fields, and the Template dropdown with separate labels, clearer
+  control shapes, and larger touch targets. Underline links to other renderer sections.
 - Update the static asset installation check page to match the renderer interface.
 - Bundle Atkinson Hyperlegible Next and Mono for the interface and generated problems. Load
   renderer defaults ahead of problem-authored styles so problems can override them.

@@ -47,8 +47,9 @@
   font-family: var(--renderer-font-ui, system-ui, sans-serif);
 }
 
-.editor-actions,
-.editor-field,
+.editor-settings,
+.editor-field-controls,
+.editor-file-buttons,
 .preview-controls {
   display: flex;
   flex-wrap: wrap;
@@ -56,12 +57,26 @@
   gap: 0.5rem;
 }
 
+.editor-actions,
 .editor-field {
-  min-inline-size: 0;
+  display: grid;
 }
 
-.editor-file-field {
-  flex: 1 1 16rem;
+.editor-actions,
+.editor-settings {
+  gap: 0.75rem 1rem;
+}
+
+.editor-settings {
+  align-items: start;
+}
+
+.editor-field {
+  min-inline-size: 0;
+  gap: 0.25rem;
+}
+
+.editor-file-buttons {
   flex-wrap: nowrap;
 }
 
@@ -70,6 +85,21 @@
   color: var(--renderer-text);
   font-size: 0.875rem;
   font-weight: 700;
+}
+
+.preview-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-block-size: 1.5rem;
+  cursor: pointer;
+}
+
+.preview-controls input {
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--renderer-navy);
 }
 
 .editor-actions input,
@@ -85,6 +115,24 @@
   font: inherit;
 }
 
+.editor-actions select,
+.editor-actions button,
+.preview-controls button {
+  cursor: pointer;
+}
+
+.editor-actions button {
+  border-color: var(--renderer-navy);
+  background: #ceebfd;
+  color: var(--renderer-navy);
+  box-shadow: 0 2px 0 var(--renderer-navy);
+  font-weight: 700;
+}
+
+.editor-actions button:active {
+  box-shadow: inset 0 2px 0 var(--renderer-navy);
+}
+
 .editor-actions input:focus-visible,
 .editor-actions select:focus-visible,
 .editor-actions button:focus-visible,
@@ -95,14 +143,47 @@
 }
 
 #sourceFilePath {
-  flex: 1;
+  flex: 1 1 12rem;
   min-inline-size: 0;
   font-family: var(--renderer-font-code, monospace);
 }
 
 #problemSeed {
-  inline-size: 7rem;
+  inline-size: 6.5rem;
   font-family: var(--renderer-font-code, monospace);
+}
+
+#template-select {
+  min-inline-size: 7rem;
+}
+
+@media (forced-colors: none) {
+  .editor-select {
+    display: grid;
+    align-items: center;
+  }
+
+  .editor-select select,
+  .editor-select::after {
+    grid-area: 1 / 1;
+  }
+
+  .editor-select select {
+    appearance: none;
+    padding-inline-end: 2rem;
+  }
+
+  .editor-select::after {
+    content: "";
+    justify-self: end;
+    inline-size: 0.5em;
+    block-size: 0.5em;
+    margin-inline-end: 0.75em;
+    border: solid var(--renderer-navy);
+    border-width: 0 2px 2px 0;
+    transform: translateY(-0.1em) rotate(45deg);
+    pointer-events: none;
+  }
 }
 
 #render-button {
@@ -112,17 +193,27 @@
   font-weight: 700;
 }
 
-.editor-actions button:hover,
-.preview-controls button:hover {
-  background: var(--renderer-surface-hover, #cce6ff);
+.editor-actions button:hover {
+  background: #bfd1e3;
 }
 
-#render-button:hover {
+.editor-actions select:hover {
+  border-color: var(--renderer-navy);
+}
+
+#render-button:is(:hover, :active) {
   background: var(--renderer-action-hover, #003366);
 }
 
 :is(.editor-actions, .preview-controls) button[aria-disabled="true"] {
   cursor: wait;
+}
+
+@media (pointer: coarse) {
+  .editor-actions :is(input, select, button),
+  .preview-controls :is(button, label) {
+    min-block-size: 3rem;
+  }
 }
 
 .editor-content,

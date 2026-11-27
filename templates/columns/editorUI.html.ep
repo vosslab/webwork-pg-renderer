@@ -1,39 +1,6 @@
 <header class="editor-pane-header">
-  <div>
-    <h2 id="editor-pane-title">Problem source</h2>
-    <p id="currentEditPath" class="editor-path" aria-live="polite">Unsaved editor contents</p>
-  </div>
-  <div class="editor-actions">
-    <div class="editor-field">
-      <label for="sourceFilePath">File path</label>
-      <div class="editor-field-controls">
-        <input type="text" id="sourceFilePath" name="sourceFilePath" autocomplete="off" placeholder="private/sample.pg">
-        <div class="editor-file-buttons">
-          <button type="button" id="load-problem">Load</button>
-          <button type="button" id="save-problem">Save</button>
-        </div>
-      </div>
-    </div>
-    <div class="editor-settings" role="group" aria-label="Render settings">
-      <div class="editor-field">
-        <label for="problemSeed">Seed</label>
-        <div class="editor-field-controls">
-          <input type="number" id="problemSeed" name="problemSeed" inputmode="numeric" min="1" max="999999" autocomplete="off">
-          <button type="button" id="randomize-seed">New seed</button>
-        </div>
-      </div>
-      <div class="editor-field">
-        <label for="template-select">Template</label>
-        <div class="editor-select">
-          <select id="template-select" name="outputFormat">
-            <option value="default" selected>Default</option>
-            <option value="static">Static</option>
-            <option value="debug">Debug</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  </div>
+  <h2 id="editor-pane-title">Problem source</h2>
+  <p id="currentEditPath" class="editor-path" aria-live="polite">Unsaved editor contents</p>
 </header>
 <div id="problem-editor" class="editor-content">
   <div id="problemContentsEditor" class="code-mirror-editor"></div>

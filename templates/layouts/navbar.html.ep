@@ -1,3 +1,4 @@
+% my $current_page = $c->stash('renderer_page') // '';
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -7,15 +8,20 @@
     <title><%= $c->stash('page_title') // 'WeBWorK Standalone Renderer' %></title>
     <link rel="stylesheet" href="css/fonts.css">
     <link rel="stylesheet" href="css/navbar.css">
+    % if ($current_page eq 'editor') {
+      <link rel="stylesheet" href="css/twocolumn.css">
+    % }
   </head>
-  <body>
-    % my $current_page = $c->stash('renderer_page') // '';
+  <body class="<%= $current_page eq 'editor' ? 'editor-page' : '' %>">
     <header class="app-header">
       <a class="app-brand" href="./">WeBWorK renderer</a>
       <nav class="app-nav" aria-label="Renderer sections">
         <a id="editor-nav" href="./" aria-current="<%= $current_page eq 'editor' ? 'page' : 'false' %>">Editor</a>
         <a id="library-nav" href="opl" aria-current="<%= $current_page eq 'library' ? 'page' : 'false' %>">Problem library</a>
       </nav>
+      % if ($current_page eq 'editor') {
+        %= include 'columns/editor_controls'
+      % }
     </header>
     <main class="app-main">
       <%= content %>

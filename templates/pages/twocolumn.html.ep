@@ -1,6 +1,5 @@
 % stash renderer_page => 'editor';
 % layout 'navbar';
-<link rel="stylesheet" href="css/twocolumn.css">
 <script src="node_modules/@openwebwork/pg-codemirror-editor/dist/pg-codemirror-editor.js"></script>
 
 <section class="editor-workspace" aria-labelledby="editor-workspace-title">

@@ -1,7 +1,7 @@
 <header id="iframe-header" class="preview-pane-header">
   <div>
     <h2 id="preview-pane-title">Rendered problem</h2>
-    <p id="render-status" class="app-status render-status" role="status" aria-live="polite">Load or edit a problem, then render it.</p>
+    <p id="render-status" class="app-status render-status" role="status" aria-live="polite">Ready to render.</p>
   </div>
   <div class="preview-controls">
     <button type="button" id="render-button">Render problem</button>

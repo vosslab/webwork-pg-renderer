@@ -5,6 +5,7 @@
 ### Fixes and Maintenance
 
 - Synchronized shared style guides, tests, and repository support files from the starter template.
+- Update the asset build's `source-map-js` dependency to 1.2.4 to address CVE-2026-93749.
 
 ## 2026-08-08
 

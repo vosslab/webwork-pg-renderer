@@ -1,15 +1,22 @@
 :root {
   --renderer-navy: #003366;
-  --renderer-navy-hover: #043e62;
   --renderer-surface: #ffffff;
   --renderer-page: #f4f7fb;
   --renderer-border: #c7d1df;
   --renderer-control-border: #666666;
+  --renderer-control-height: 2.25rem;
+  --renderer-action: #0067cc;
   --renderer-text: #333333;
   --renderer-muted: #555555;
   --renderer-focus: #003366;
   --renderer-radius: 0.5rem;
   --renderer-shadow: 0 0.25rem 0.75rem rgb(0 51 102 / 12%);
+}
+
+@media (pointer: coarse) {
+  :root {
+    --renderer-control-height: 3rem;
+  }
 }
 
 * {
@@ -70,9 +77,33 @@ textarea {
   gap: 0.25rem;
 }
 
-.app-nav a {
-  border-radius: 0.3rem;
-  padding: 0.35rem 0.6rem;
+.app-nav a,
+.app-button,
+.app-field {
+  min-block-size: var(--renderer-control-height);
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.55rem;
+}
+
+.app-nav a,
+.app-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-field {
+  border: 1px solid var(--renderer-control-border);
+  background: var(--renderer-surface);
+  color: var(--renderer-text);
+}
+
+select.app-field {
+  cursor: pointer;
+}
+
+select.app-field:hover {
+  border-color: var(--renderer-navy);
 }
 
 .app-nav a:not([aria-current="page"]) {
@@ -110,25 +141,29 @@ textarea {
 }
 
 .app-button {
-  border: 1px solid var(--renderer-navy);
-  border-radius: 0.3rem;
-  background: var(--renderer-navy);
+  border: 1px solid var(--renderer-action);
+  background: var(--renderer-action);
   color: #ffffff;
   cursor: pointer;
-  padding: 0.5rem 0.75rem;
+  font-weight: 700;
 }
 
-.app-button:hover {
-  background: var(--renderer-navy-hover);
+.app-button:is(:hover, :active) {
+  background: var(--renderer-navy);
 }
 
 .app-button--secondary {
-  background: var(--renderer-surface);
+  border-color: #80c0ff;
+  background: #ceebfd;
   color: var(--renderer-navy);
 }
 
-.app-button--secondary:hover {
-  background: var(--renderer-page);
+.app-button--secondary:is(:hover, :active) {
+  background: #bfd1e3;
+}
+
+.app-button--secondary:active {
+  box-shadow: inset 0 2px 0 var(--renderer-navy);
 }
 
 .app-button:disabled {
@@ -136,6 +171,10 @@ textarea {
   background: var(--renderer-page);
   color: var(--renderer-muted);
   cursor: default;
+}
+
+.app-button[aria-disabled="true"] {
+  cursor: wait;
 }
 
 .app-error {

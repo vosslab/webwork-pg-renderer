@@ -2,23 +2,23 @@
   <div class="editor-file-controls">
     <div class="editor-field">
       <label for="sourceFilePath">File path</label>
-      <input type="text" id="sourceFilePath" name="sourceFilePath" autocomplete="off" placeholder="private/sample.pg">
+      <input type="text" class="app-field" id="sourceFilePath" name="sourceFilePath" autocomplete="off" placeholder="private/sample.pg">
     </div>
     <div class="editor-file-buttons">
-      <button type="button" id="load-problem">Load</button>
-      <button type="button" id="save-problem">Save</button>
+      <button type="button" class="app-button app-button--secondary" id="load-problem">Load</button>
+      <button type="button" class="app-button app-button--secondary" id="save-problem">Save</button>
     </div>
   </div>
   <div class="editor-settings" role="group" aria-label="Render settings">
     <div class="editor-field">
       <label for="problemSeed">Seed</label>
-      <input type="number" id="problemSeed" name="problemSeed" inputmode="numeric" min="1" max="999999" autocomplete="off">
-      <button type="button" id="randomize-seed">New seed</button>
+      <input type="number" class="app-field" id="problemSeed" name="problemSeed" inputmode="numeric" min="1" max="999999" autocomplete="off">
+      <button type="button" class="app-button app-button--secondary" id="randomize-seed">New seed</button>
     </div>
     <div class="editor-field">
       <label for="template-select">Template</label>
       <div class="editor-select">
-        <select id="template-select" name="outputFormat">
+        <select class="app-field" id="template-select" name="outputFormat">
           <option value="default" selected>Default</option>
           <option value="static">Static</option>
           <option value="debug">Debug</option>

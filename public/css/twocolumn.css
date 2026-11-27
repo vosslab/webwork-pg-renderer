@@ -124,36 +124,6 @@
   accent-color: var(--renderer-navy);
 }
 
-.editor-actions input,
-.editor-actions select,
-.editor-actions button,
-.preview-controls button {
-  min-block-size: 2.25rem;
-  border: 1px solid var(--renderer-control-border, #666666);
-  border-radius: 0.375rem;
-  padding: 0.25rem 0.55rem;
-  color: var(--renderer-text);
-  background: var(--renderer-surface, #ffffff);
-  font: inherit;
-}
-
-.editor-actions select,
-.editor-actions button,
-.preview-controls button {
-  cursor: pointer;
-}
-
-.editor-actions button {
-  border-color: #80c0ff;
-  background: #ceebfd;
-  color: var(--renderer-navy);
-  font-weight: 700;
-}
-
-.editor-actions button:active {
-  box-shadow: inset 0 2px 0 var(--renderer-navy);
-}
-
 #sourceFilePath {
   flex: 1 1 8rem;
   min-inline-size: 0;
@@ -198,33 +168,9 @@
   }
 }
 
-#render-button {
-  border-color: var(--renderer-action, #0067cc);
-  background: var(--renderer-action, #0067cc);
-  color: #ffffff;
-  font-weight: 700;
-}
-
-.editor-actions button:hover {
-  background: #bfd1e3;
-}
-
-.editor-actions select:hover {
-  border-color: var(--renderer-navy);
-}
-
-#render-button:is(:hover, :active) {
-  background: var(--renderer-action-hover, #003366);
-}
-
-:is(.editor-actions, .preview-controls) button[aria-disabled="true"] {
-  cursor: wait;
-}
-
 @media (pointer: coarse) {
-  .editor-actions :is(input, select, button),
-  .preview-controls :is(button, label) {
-    min-block-size: 3rem;
+  .preview-controls label {
+    min-block-size: var(--renderer-control-height);
   }
 }
 

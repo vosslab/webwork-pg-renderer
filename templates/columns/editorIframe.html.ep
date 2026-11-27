@@ -4,7 +4,7 @@
     <p id="render-status" class="app-status render-status" role="status" aria-live="polite">Ready to render.</p>
   </div>
   <div class="preview-controls">
-    <button type="button" id="render-button">Render problem</button>
+    <button type="button" class="app-button" id="render-button">Render problem</button>
     <label><input type="checkbox" class="checkbox-input" id="show-hint" name="isInstructor" value="1"> Instructor</label>
     <label><input type="checkbox" class="checkbox-input" id="showHints" name="showHints" value="1"> Show hints</label>
     <label><input type="checkbox" class="checkbox-input" id="show-solution" name="clientDebug" value="1"> Debug</label>

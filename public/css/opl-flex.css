@@ -1,54 +1,72 @@
-* {
-  box-sizing: border-box;
+.library-workspace {
+  display: grid;
+  gap: 0.75rem;
+  max-inline-size: 90rem;
+  margin-inline: auto;
 }
 
-body {
-    margin: 0px;
+.library-workspace h1 {
+  margin: 0;
+  color: var(--renderer-navy);
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem);
+  line-height: 1.15;
 }
 
-.container {
-    display: flex;
-    flex-direction: row;
-    align-content: stretch;
-    height: 100%;
-    width: 100%;
+.library-grid {
+  display: grid;
+  gap: 1rem;
 }
 
-.left {
-    display: flex;
-    flex-direction: column;
-    width: 25%;
-    height: inherit;
-    padding: 10px;
-    background-color: #838d9f;
+.library-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
 }
 
-.middle {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    max-width: 50%;
-    height: inherit;
-    padding: 10px;
-    background-color: #525a6a;
+.library-panel h2 {
+  margin: 0;
+  color: var(--renderer-navy);
+  font-size: 1.125rem;
 }
 
-.right {
-    display: flex;
-    flex-direction: column;
-    width: 25%;
-    height: inherit;
-    padding: 10px;
-    background-color: #919aaa;
+.opl-render-contents iframe {
+  display: block;
+  inline-size: 100%;
+  block-size: clamp(24rem, 65dvb, 48rem);
+  border: 1px solid var(--renderer-border);
+  border-radius: 0.5rem;
+  background: var(--renderer-surface);
 }
 
-.header {
-    width: 100%;
-    margin-bottom: 10px;
+.pgfile-header {
+  min-block-size: 5rem;
+  max-block-size: 12rem;
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--renderer-border);
+  border-radius: 0.5rem;
+  background: var(--renderer-page);
+  font: 0.875rem/1.4 var(--renderer-font-code);
+  white-space: pre-wrap;
 }
 
-.content {
-    display: flex;
-    flex-grow: 1;
-    width: 100%;
+@media (min-width: 56rem) {
+  .library-grid {
+    grid-template-columns: minmax(15rem, 1fr) minmax(0, 2fr);
+  }
+  #library-tags-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 78rem) {
+  .library-grid {
+    grid-template-columns: minmax(15rem, 1fr) minmax(28rem, 2fr) minmax(18rem, 1fr);
+  }
+  #library-tags-panel {
+    grid-column: auto;
+  }
 }

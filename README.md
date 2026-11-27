@@ -78,16 +78,20 @@ Notes:
 - POST `/` is supported as a primary render endpoint; `/render-api` remains for compatibility.
 
 
-## Editor Interface
+## Editor interface
 
-* point your browser at [`localhost:3000`](http://localhost:3000/)
-* select an output format (see below)
-* specify a problem path (e.g. `Library/Rochester/setMAAtutorial/hello.pg`) and a problem seed (e.g. `1234`)
-* click on "Load" to load the problem source into the editor
-* render the contents of the editor (with or without edits) via "Render contents of editor"
-* click on "Save" to save your edits to the specified file path
+Open the [local renderer](http://localhost:3000/) and enter `private/sample.pg` in **File path**.
+Select **Load** to bring the source into the editor. Choose a template and seed, then select
+**Render problem** to preview the source currently in the editor. Use **Save** to write the source to a
+file under `private/`.
 
-![image](https://user-images.githubusercontent.com/3385756/129100124-72270558-376d-4265-afe2-73b5c9a829af.png)
+Open **Problem library** to browse local or OPL directories. Select a file and choose **Open**
+to preview it and view its metadata. Edit the available fields and choose **Save tags** to write
+them to the selected problem.
+
+<!-- screenshots:begin (managed by screenshot-docs) -->
+![The WeBWorK editor beside a rendered problem with answer controls](docs/screenshots/renderer_editor.webp)
+<!-- screenshots:end -->
 
 ## Server Configuration
 

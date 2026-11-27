@@ -2,10 +2,26 @@
 
 ## 2026-11-26
 
+### Behavior or Interface Changes
+
+- Refresh the editor, problem library, and HTML error pages with responsive layouts, keyboard
+  controls, and inline feedback for file, render, and tag operations.
+- Update the static asset installation check page to match the renderer interface.
+- Bundle Atkinson Hyperlegible Next and Mono for the interface and generated problems. Load
+  renderer defaults ahead of problem-authored styles so problems can override them.
+
 ### Fixes and Maintenance
 
 - Synchronized shared style guides, tests, and repository support files from the starter template.
 - Update the asset build's `source-map-js` dependency to 1.2.4 to address CVE-2026-93749.
+- Resolve renderer assets relative to the configured base URL and load the installed MathJax v4
+  SVG component from its current package path.
+- Fix the project license link and add missing type annotations in the PG lint helper.
+
+### Removals and Deprecations
+
+- Remove the obsolete January 2026 migration plans, scripts, and preserved snapshots under
+  `MIGRATION_FILES/`. The artifacts remain available in Git history.
 
 ## 2026-08-08
 

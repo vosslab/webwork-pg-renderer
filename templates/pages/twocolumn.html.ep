@@ -1,12 +1,14 @@
+% stash renderer_page => 'editor';
 % layout 'navbar';
-%= stylesheet 'css/twocolumn.css'
-%= javascript 'https://cdn.jsdelivr.net/npm/js-base64@3.5.2/base64.min.js'
+<link rel="stylesheet" href="css/twocolumn.css">
+<script src="node_modules/@openwebwork/pg-codemirror-editor/dist/pg-codemirror-editor.js"></script>
 
-<div class="row" style="margin-top: 47px;">
-  <div class="column left">
+<section class="editor-workspace" aria-labelledby="editor-workspace-title">
+  <h1 id="editor-workspace-title">Problem editor</h1>
+  <section id="editor-panel" class="app-panel editor-pane" aria-labelledby="editor-pane-title">
     %= include 'columns/editorUI'
-  </div>
-  <div class="column right">
+  </section>
+  <section id="preview-panel" class="app-panel preview-pane" aria-labelledby="preview-pane-title">
     %= include 'columns/editorIframe'
-  </div>
-</div>
+  </section>
+</section>

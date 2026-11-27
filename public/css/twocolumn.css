@@ -1,93 +1,172 @@
-* {
-  box-sizing: border-box;
+.editor-workspace {
+  display: grid;
+  gap: 1rem;
 }
 
-/* Create two equal columns that floats next to each other */
-.column {
-  width: 50%;
-  height: auto;
-  padding: 10px;
-  position: absolute;
-  z-index: 1;
-  display: block;
-  bottom: 0;
-  top: 47px;
+.editor-workspace > h1 {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--renderer-navy);
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2.25rem);
+  line-height: 1.15;
 }
 
-.left {
-  left: 0;
-  background-color:#aaa;
+.editor-pane,
+.preview-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
-.right {
-  right: 0;
-  background-color:#bbb;
+.editor-pane-header,
+.preview-pane-header {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-block-end: 1px solid var(--renderer-border, #c0d5e2);
+  background: var(--renderer-surface-muted, #eef7fc);
 }
 
-/* Clear floats after the columns */
-.row:after {
-  content: "";
-  display: table;
-  clear: both;
+.editor-pane-header h2,
+.preview-pane-header h2 {
+  margin: 0;
+  color: var(--renderer-navy);
+  font-size: 1.1rem;
 }
 
-.content {
-  position: absolute;
-  top: 50px;
-  bottom: 0px;
-  left: 0px;
-  right: 0px;
-  padding: 10px;
+.editor-path,
+.render-status {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--renderer-text);
+  font-family: var(--renderer-font-code, monospace);
+  font-size: 0.875rem;
 }
 
-.iframe-header {
-    position: relative;
-    overflow: hidden;
+.render-status {
+  font-family: var(--renderer-font-ui, system-ui, sans-serif);
+}
+
+.editor-actions,
+.editor-field,
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.editor-field {
+  min-inline-size: 0;
+}
+
+.editor-file-field {
+  flex: 1 1 16rem;
+  flex-wrap: nowrap;
+}
+
+.editor-actions label,
+.preview-controls label {
+  color: var(--renderer-text);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.editor-actions input,
+.editor-actions select,
+.editor-actions button,
+.preview-controls button {
+  min-block-size: 2.5rem;
+  border: 1px solid var(--renderer-control-border, #666666);
+  border-radius: 0.375rem;
+  padding: 0.4rem 0.65rem;
+  color: var(--renderer-text);
+  background: var(--renderer-surface, #ffffff);
+  font: inherit;
+}
+
+.editor-actions input:focus-visible,
+.editor-actions select:focus-visible,
+.editor-actions button:focus-visible,
+.preview-controls button:focus-visible,
+.preview-controls input:focus-visible {
+  outline: 3px solid var(--renderer-focus, #1a8dff);
+  outline-offset: 2px;
+}
+
+#sourceFilePath {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--renderer-font-code, monospace);
+}
+
+#problemSeed {
+  inline-size: 7rem;
+  font-family: var(--renderer-font-code, monospace);
+}
+
+#render-button {
+  border-color: var(--renderer-action, #0067cc);
+  background: var(--renderer-action, #0067cc);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.editor-actions button:hover,
+.preview-controls button:hover {
+  background: var(--renderer-surface-hover, #cce6ff);
+}
+
+#render-button:hover {
+  background: var(--renderer-action-hover, #003366);
+}
+
+:is(.editor-actions, .preview-controls) button[aria-disabled="true"] {
+  cursor: wait;
+}
+
+.editor-content,
+.preview-content {
+  min-block-size: 0;
+  block-size: clamp(22rem, calc(100dvb - 21rem), 47rem);
+  padding: 0.75rem;
+}
+
+.code-mirror-editor,
+.code-mirror-editor .cm-editor {
+  block-size: 100%;
+}
+
+.code-mirror-editor {
+  overflow: auto;
+  border: 1px solid var(--renderer-control-border, #666666);
+  border-radius: 0.375rem;
+  font-family: var(--renderer-font-code, monospace);
+}
+
+.code-mirror-editor .cm-content,
+.code-mirror-editor .cm-gutters {
+  font-family: var(--renderer-font-code, monospace);
 }
 
 .iframe-responsive {
-    top: 0;
-    left: 0;
-    width: 100%;
-    max-height: 100%;
-    min-width: 100%;
-    border: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border: 1px solid var(--renderer-control-border, #666666);
+  border-radius: 0.375rem;
+  background: #ffffff;
 }
 
-/* Responsive layout - makes the two columns stack on top of each other instead of next to each other */
-@media screen and (max-width: 600px) {
-  .column {
-    width: 100%;
+@media (min-width: 60rem) {
+  .editor-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 
-#currentEditPath {
-  font-size: 11px;
-  padding: 5px;
-  padding-bottom: 13px;
-}
-
-/* Modernized iframe header and render button */
-.iframe-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  background: #d1d5db;
-  border-bottom: 1px solid #c4c4c4;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-}
-
-.iframe-header .render-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 12px;
-  font-size: 0.9rem;
-  color: #1f2933;
-}
-
-.iframe-header .checkbox-input {
-  width: 14px;
-  height: 14px;
+@media (prefers-reduced-motion: reduce) {
+  .editor-workspace * {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
 }

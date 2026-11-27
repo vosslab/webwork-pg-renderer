@@ -1,16 +1,14 @@
-%= stylesheet 'css/filebrowser.css'
-%= javascript 'js/filebrowser.js'
-
-<div class='header'>
-    Current directory path: </br>
-    %= form_for 'render-api/cat' => ( method => 'POST', id => 'BackNavigation') => begin
-    %= hidden_field maxDepth => 1
-    %= select_field basePath => ['/'], id => 'back-nav', class => 'back-nav dropdown', onchange => "updateBrowser('BackNavigation', backOut)"
-    %= end
-</div>
-<div class='content'>
-    %= form_for 'render-api/cat' => ( method => 'POST', id => 'FileBrowserForm', class => 'fill-height' ) => begin
-    %= hidden_field maxDepth => 1
-    %= select_field basePath => [[Contrib => 'Contrib/'], [Library => 'Library/'], [Pending => 'Pending/'], [private => 'private/']], id => 'file-list', multiple => undef, class => 'file-list', ondblclick => "updateBrowser('FileBrowserForm', diveIn)"
-    %= end
-</div>
+<link rel="stylesheet" href="css/filebrowser.css">
+<form action="render-api/cat" method="post" id="BackNavigation" class="browser-form">
+  %= hidden_field maxDepth => 1
+  <label for="back-nav">Current directory</label>
+  %= select_field basePath => ['/'], id => 'back-nav', class => 'back-nav'
+</form>
+<form action="render-api/cat" method="post" id="FileBrowserForm" class="browser-form browser-files">
+  %= hidden_field maxDepth => 1
+  <label for="file-list">Folders and problems</label>
+  %= select_field basePath => [[Contrib => 'Contrib/'], [Library => 'Library/'], [Pending => 'Pending/'], [private => 'private/']], id => 'file-list', class => 'file-list', size => 12
+  <button type="submit" id="open-browser-item" class="app-button">Open selected item</button>
+  <p class="browser-help">Double-click an item to open it.</p>
+</form>
+<script src="js/filebrowser.js"></script>

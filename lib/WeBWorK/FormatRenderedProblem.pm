@@ -80,7 +80,7 @@ sub formatRenderedProblem {
 		[ 'node_modules/jquery-ui-dist/jquery-ui.min.js',                      {} ],
 		[ 'node_modules/iframe-resizer/js/iframeResizer.contentWindow.min.js', {} ],
 		[ "js/apps/MathJaxConfig/mathjax-config.js",                { defer => undef } ],
-		[ 'node_modules/mathjax/es5/tex-svg.js',                    { defer => undef, id => 'MathJax-script' } ],
+		[ 'node_modules/mathjax/tex-svg.js',                        { defer => undef, id => 'MathJax-script' } ],
 		[ 'node_modules/bootstrap/dist/js/bootstrap.bundle.min.js', { defer => undef } ],
 		[ "js/apps/Problem/problem.js",                             { defer => undef } ],
 		[ "js/apps/Problem/submithelper.js",                        { defer => undef } ],

@@ -1,21 +1,37 @@
-form {
-  width: 100%;
+.browser-form {
+  display: grid;
+  gap: 0.5rem;
 }
 
-.fill-height {
-  height: 100%;
+.browser-form label {
+  font-weight: 700;
 }
 
-select {
-  height: inherit;
-  width: inherit;
+.browser-form select {
+  inline-size: 100%;
+  min-inline-size: 0;
+  border: 1px solid var(--renderer-control-border);
+  border-radius: 0.375rem;
+  background: var(--renderer-surface);
+  color: var(--renderer-text);
+  font: 0.95rem/1.35 var(--renderer-font-code);
+}
+
+.file-list {
+  min-block-size: 18rem;
+}
+
+.browser-help {
+  margin: 0;
+  color: var(--renderer-muted);
+  font-size: 0.875rem;
 }
 
 .pg-file {
-  color: rgb(0, 80, 0);
-  font-weight: bold;
+  color: #004f00;
+  font-weight: 700;
 }
 
 .other-file {
-  color: rgb(126, 0, 0);
+  color: #660000;
 }

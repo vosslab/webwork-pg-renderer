@@ -257,7 +257,7 @@ The editor UI in `public/js/navbar.js` uses multipart form data and base64 encod
 
 ### Render from editor
 
-Fields posted to `POST /render-api` when clicking "Render contents of editor":
+Fields posted to `POST /render-api` when you select **Render problem**:
 
 - `_format`: `json`
 - `showComments`: `1`

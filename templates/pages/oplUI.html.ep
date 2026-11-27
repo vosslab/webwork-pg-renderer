@@ -1,13 +1,21 @@
-%= stylesheet 'css/opl-flex.css'
-
-<div class="container">
-  <div class="left">
-    %= include 'columns/filebrowser'
+% $c->stash(renderer_page => 'library');
+% layout 'navbar';
+<link rel="stylesheet" href="css/opl-flex.css">
+<section class="library-workspace" aria-labelledby="library-title">
+  <h1 id="library-title">Problem library</h1>
+  <p id="opl-status" class="app-status" role="status" aria-live="polite">Choose a folder or problem to begin.</p>
+  <div class="library-grid">
+    <section id="library-browser-panel" class="app-panel library-panel" aria-labelledby="browser-title">
+      <h2 id="browser-title">Browse problems</h2>
+      %= include 'columns/filebrowser'
+    </section>
+    <section id="library-preview-panel" class="app-panel library-panel" aria-labelledby="preview-title">
+      <h2 id="preview-title">Problem preview</h2>
+      %= include 'columns/oplIframe'
+    </section>
+    <section id="library-tags-panel" class="app-panel library-panel" aria-labelledby="tags-title">
+      <h2 id="tags-title">Problem tags</h2>
+      %= include 'columns/tags'
+    </section>
   </div>
-  <div class="middle">
-    %= include 'columns/oplIframe'
-  </div>
-  <div class="right">
-    %= include 'columns/tags'
-  </div>
-</div>
+</section>

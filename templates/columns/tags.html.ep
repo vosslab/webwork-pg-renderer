@@ -1,4 +1,4 @@
-%= stylesheet 'css/tags.css'
+<link rel="stylesheet" href="css/tags.css">
 
 % my $taxo = '[]';
 % my $taxo_path = $c->app->home->child('tmp/tagging-taxonomy.json');
@@ -9,10 +9,10 @@
 %     $c->app->log->warn("Missing taxonomy file: $taxo_path");
 % }
 
-<div class='content'>
     %= form_for 'render-api/tags' => ( method => 'POST', id => 'problem-tags' ) => begin
     %= hidden_field 'file' => '', id => 'tag-filename'
-    <div id='tag-wrapper' class='wrapper'>
+    <fieldset id='tag-wrapper' class='wrapper tag-group'>
+        <legend>Library information</legend>
         <div class='form-row'>
             %= label_for 'Status' => 'Review Status: '
             %= select_field 'Status' => [['not reviewed' => ''], ['Accepted' => 'A'], ['Missing resource' => 'N'], ['Hold for further review' => 'F'], ['Rejected' => 'R']]
@@ -35,11 +35,11 @@
         </div>
         <div class='form-row'>
             %= label_for 'DBsubject' => 'DBsubject: '
-            %= select_field 'DBsubject' => [''], id => 'db-subject', onchange => 'updateDBchapter()'
+            %= select_field 'DBsubject' => [''], id => 'db-subject'
         </div>
         <div class='form-row'>
             %= label_for 'DBchapter' => 'DBchapter: '
-            %= select_field 'DBchapter' => [''], id => 'db-chapter', onchange => 'updateDBsection()'
+            %= select_field 'DBchapter' => [''], id => 'db-chapter'
         </div>
         <div class='form-row'>
             %= label_for 'DBsection' => 'DBsection: '
@@ -70,8 +70,9 @@
             %= label_for 'Static' => 'Static: '
             %= check_box 'Static', id => 'Static', value => 1
         </div>
-    </div>
-    <div id='flags-wrapper' class='wrapper'>
+    </fieldset>
+    <fieldset id='flags-wrapper' class='wrapper tag-group'>
+        <legend>Available content</legend>
         <div class='form-row'>
             %= label_for 'hintExists' => 'Hint provided: '
             %= check_box 'hintExists', id => 'hintExists', value => 1
@@ -80,14 +81,14 @@
             %= label_for 'solutionExists' => 'Solution provided: '
             %= check_box 'solutionExists', id => 'solutionExists', value => 1
         </div>
-    </div>
+    </fieldset>
     <div class = 'form-row'>
-        %= submit_button 'Save Tags' 
+        <button type="submit" id="save-tags" class="app-button" disabled>Save tags</button>
     </div>
+    <p id="tag-status" class="app-status" role="status" aria-live="polite"></p>
     %= end
-</div>
 
 %= javascript begin
-taxo = <%== $taxo %>;
+const taxo = <%== $taxo %>;
 %= end
-%= javascript 'js/tags.js'
+<script src="js/tags.js"></script>

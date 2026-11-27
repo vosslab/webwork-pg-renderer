@@ -3,7 +3,7 @@
 ## Top-level layout
 - `AGENTS.md` defines repo workflow and agent instructions.
 - `README.md` describes purpose, usage, and API parameters.
-- `LICENSE.md` contains the project license text.
+- `LICENSE.GPL-3.0` contains the project license text.
 - `TODO.md` tracks local backlog items.
 - `docs/` stores documentation files.
 - `lib/` holds the Mojolicious app and vendored PG/WeBWorK code.
@@ -38,7 +38,7 @@
 - Documentation lives under `docs/` and follows [MARKDOWN_STYLE.md](MARKDOWN_STYLE.md) and
   [REPO_STYLE.md](REPO_STYLE.md).
 - Root docs include [README.md](../README.md), [AGENTS.md](../AGENTS.md),
-  [LICENSE.md](../LICENSE.md), and [TODO.md](../TODO.md).
+  [LICENSE.GPL-3.0](../LICENSE.GPL-3.0), and [TODO.md](../TODO.md).
 - Change history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Where to add new work

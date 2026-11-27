@@ -1,21 +1,4 @@
-%= javascript 'node_modules/iframe-resizer/js/iframeResizer.min.js'
-%= stylesheet begin
-.pgfile-header {
-    max-height: 30%;
-    background-color: #ddd;
-    overflow: auto;
-}
-.iframe-responsive {
-    width: 100%;
-    max-height: 100%;
-
-}
-%= end
-
-<div id="raw-metadata" class='header pgfile-header'>
-    Pre-"DOCUMENT" pg file content
-</div>
-<div id='render-contents' class='content'>
-    <iframe class="iframe-responsive" id="rendered-problem">
-    </iframe>
+<pre id="raw-metadata" class="pgfile-header">Problem metadata appears here.</pre>
+<div id="render-contents" class="opl-render-contents">
+  <iframe class="iframe-responsive" id="rendered-problem" title="Rendered problem preview">Load a problem to preview it here.</iframe>
 </div>

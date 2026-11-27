@@ -1,200 +1,144 @@
-// pass the form to use for updating and a callback for updating back-navigation
-// examples for this callback are provided: `diveIn` and `backOut`
-function updateBrowser(formId, updateBackNav) {
-    var form = window.document.getElementById(formId);
-    var target = form.action;
-    var select = form.getElementsByTagName('select')[0]; // each form has only one <select> element
-    var option = select.options[select.selectedIndex];
-    var value = option.value;
-    var formData = new FormData();
-    var processData;
+function setLibraryStatus(message, isError = false) {
+    const status = document.getElementById('opl-status');
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = isError ? 'error' : 'ready';
+}
 
-    if (value.startsWith('/')) { value = value.replace('/', '') } // replaces first instance only
-    if (value.match(/\/$/)) {
-        formData.set('maxDepth', 1);
-        formData.set('basePath', value);
-        processData = function (data) {
+function requestUrl(path) {
+    return new URL(path, document.baseURI).href;
+}
+
+function selectedOption(form) {
+    const select = form.querySelector('select');
+    return select && select.options[select.selectedIndex];
+}
+
+function updateBrowser(formId, updateBackNav) {
+    const form = document.getElementById(formId);
+    const option = selectedOption(form);
+    if (!option) return;
+    const value = option.value;
+    const formData = new FormData();
+    let target = form.action;
+    let processData;
+
+    if (value.endsWith('/')) {
+        formData.set('maxDepth', '1');
+        formData.set('basePath', value.replace(/^\//, ''));
+        processData = (data) => {
             updateFileList(data);
             updateBackNav(option.text);
+            setLibraryStatus(`Showing ${option.text || 'root'} directory.`);
         };
-    } else if (value.match(/\.pg$/)) {
-        target = 'render-api/';
-        formData.set('sourceFilePath', value);
-        formData.set('problemSeed', 1234);
+    } else if (value.endsWith('.pg')) {
+        target = requestUrl('render-api/');
+        formData.set('sourceFilePath', value.replace(/^\//, ''));
+        formData.set('problemSeed', '1234');
         formData.set('outputFormat', 'static');
         formData.set('_format', 'json');
-        formData.set('isInstructor', 1);
-		formData.set('forceScaffoldsOpen', 1);
-		formData.set('includeTags', 1);
-        formData.set('showComments', 1);
-        processData = function (data) {
+        formData.set('isInstructor', '1');
+        formData.set('forceScaffoldsOpen', '1');
+        formData.set('includeTags', '1');
+        formData.set('showComments', '1');
+        processData = (data) => {
             updateIframe(data.renderedHTML);
             updateMetadata(data);
-        }
+            setLibraryStatus(`Loaded ${value}.`);
+        };
     } else {
-        // default back to the root
         resetBackNav();
         return;
     }
 
-    if (target.startsWith('/')) {
-        target = target.replace(/^\/+/, '');
-    }
-
-    var params = {
-        body: formData,
-        method: 'post'
-    };
-    fetch(target, params)
-    .then( function(resp) {
-        if (resp.ok) {
-            return resp.json();
-        } else {
-            throw new Error("Something went wrong: " + resp.statusText);
-        }
-    })
-    .then( processData )
-    .catch( function(e) {
-        console.log(e);
-        alert(e.message);
-    });
+    fetch(target, { body: formData, method: 'POST' })
+        .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Request failed: ${response.status}`)))
+        .then(processData)
+        .catch((error) => {
+            console.error(error);
+            setLibraryStatus(error.message, true);
+        });
 }
 
-// use the response to update the file browser
 function updateFileList(data) {
-    var select = window.document.getElementById('file-list');
-    select.innerHTML = '';
-    for (var key in data) {
-        var opt = document.createElement('option');
-        if (key.match(/\./)) { opt.className = (key.match(/\.pg$/)) ? 'pg-file' : 'other-file'; }
-        opt.text = key;
-        opt.value = data[key];
-        select.add(opt);
-    }
+    const select = document.getElementById('file-list');
+    const options = Object.keys(data).map((key) => {
+        const option = document.createElement('option');
+        option.textContent = key;
+        option.value = data[key];
+        if (key.includes('.')) option.className = key.endsWith('.pg') ? 'pg-file' : 'other-file';
+        return option;
+    });
+    select.replaceChildren(...options);
 }
 
-// callback to extend the back-navigation
 function diveIn(updatePath) {
-    var select = window.document.getElementById('back-nav');
-    var current = select.options[0];
-    var newOption = document.createElement('option');
-    newOption.text = `${current.text}${updatePath}/`;
-    newOption.value = `${current.value}${updatePath}/`;
-    select.add(newOption, 0);
+    const select = document.getElementById('back-nav');
+    const current = select.options[0];
+    const option = document.createElement('option');
+    option.textContent = `${current.text}${updatePath}/`;
+    option.value = `${current.value}${updatePath}/`;
+    select.prepend(option);
     select.selectedIndex = 0;
 }
 
-// callback to retract the back-navigation
-function backOut(updatePath) {
-    var select = window.document.getElementById('back-nav');
-    while (select.selectedIndex !== 0) {
-        select.remove(0);
-    }
+function backOut() {
+    const select = document.getElementById('back-nav');
+    while (select.selectedIndex !== 0) select.remove(0);
 }
 
-// reset the back-navigation
 function resetBackNav() {
-    var data = {
-        Contrib: 'Contrib/',
-        Library: 'Library/',
-        Pending: 'Pending/',
-        private: 'private/',
-    }
-    updateFileList(data);
-
-    var select = window.document.getElementById('back-nav');
+    updateFileList({ Contrib: 'Contrib/', Library: 'Library/', Pending: 'Pending/', private: 'private/' });
+    const select = document.getElementById('back-nav');
     select.selectedIndex = select.options.length - 1;
-    backOut('/');
+    backOut();
 }
 
-// in case the raw metadata text is parsed incorrectly
-// display it as text
 function updateRawMetadata(text) {
-    var container = window.document.getElementById('raw-metadata');
-    text = text.replace(/\n/g, '<BR>');
-    text = text.replace(/#/g, '');
-    container.innerHTML = text;
+    document.getElementById('raw-metadata').textContent = (text || '').replace(/#/g, '');
 }
 
 function updateIframe(html) {
-    var container = window.document.getElementById('rendered-problem');
-    container.srcdoc = html;
+    document.getElementById('rendered-problem').srcdoc = html || '';
 }
 
-function mergeArrays() {
-    var merged = [];
-    var args = Array.prototype.slice.call(arguments);
-    args.forEach( (arg) => merged = merged.concat(arg) );
-    return merged.filter((el, ind, arr) => (el && arr.indexOf(el) === ind));
+function mergeArrays(...arrays) {
+    return [...new Set(arrays.flat().filter((value) => typeof value === 'string' && value))];
+}
+
+function updateEach(container, info) {
+    container.querySelectorAll('[name]').forEach((field) => {
+        const value = info[field.name];
+        if (field.type === 'checkbox') field.checked = value === 1 || value === '1' || value === true;
+        else field.value = value ?? '';
+    });
 }
 
 function updateMetadata(data) {
-    // obscene, but merges the two sources and eliminates duplicates, ignores undef
-    data.tags.resources = mergeArrays(data.tags.resources, data.resources, data.pgResources);
-
-    if (data.tags.isplaceholder === 1) {
-        // reset all form-fields
-        var tagContainer = window.document.getElementById('tag-wrapper');
-        updateEach(tagContainer, {Resources: data.tags.resources.join(', ')});
-        var flagContainer = window.document.getElementById('flags-wrapper');
-        updateEach(flagContainer, {});
+    const tags = data.tags || {};
+    tags.resources = mergeArrays(tags.resources || [], data.resources || [], data.pgResources || []);
+    if (tags.isplaceholder === 1) {
+        updateEach(document.getElementById('tag-wrapper'), { Resources: tags.resources.join(', ') });
+        updateEach(document.getElementById('flags-wrapper'), {});
+        document.getElementById('tag-filename').value = '';
+        document.getElementById('save-tags').disabled = true;
         updateRawMetadata('');
-
-        alert(`${data.tags.file} is a placeholder - do not set tags!`);
-        console.log(data);
-        return; // bow out
+        setLibraryStatus(`${tags.file} is a placeholder; tags cannot be saved.`, true);
+        return;
     }
-
-    // make sure the tags form is matched to the right pg file
-    var pathfield = window.document.getElementById('tag-filename');
-    pathfield.setAttribute('value', data.tags.file);
-
-    if (data.raw_metadata_text) {
-        updateRawMetadata(data.raw_metadata_text);
-    } else {
-        updateRawMetadata('');
-    }
-    // metadata is spread across the response object
-    // form data is grouped by 'location' in the response
-    if (data.tags) {
-        var tagContainer = window.document.getElementById('tag-wrapper');
-        console.log("METADATA: ", data);
-        // description is an array of text, one entry per line
-        data.tags.Description = data.tags.description.join("\n");
-        // keywords is an array of strings
-        data.tags.Keywords = data.tags.keywords.join(', ');
-        data.tags.Resources = data.tags.resources.join(', ');
-        updateEach(tagContainer, data.tags);
-    }
-
-    if (data.flags) {
-        var flagContainer = window.document.getElementById('flags-wrapper');
-        updateEach(flagContainer, data.flags);
-    }
+    document.getElementById('tag-filename').value = tags.file || '';
+    updateRawMetadata(data.raw_metadata_text || '');
+    tags.Description = (tags.description || []).join('\n');
+    tags.Keywords = (tags.keywords || []).join(', ');
+    tags.Resources = tags.resources.join(', ');
+    updateEach(document.getElementById('tag-wrapper'), { ...tags, DBsubject: '', DBchapter: '', DBsection: '' });
+    updateDBsubject(tags.DBsubject || '');
+    updateDBchapter(tags.DBchapter || '');
+    updateDBsection(tags.DBsection || '');
+    updateEach(document.getElementById('flags-wrapper'), data.flags || {});
+    document.getElementById('save-tags').disabled = !tags.file;
 }
 
-// update form fields from response data
-// @param container - the html parent
-// @param info - an object containing keys corresponding to the children of `container`
-function updateEach(container, info) {
-    for (i = 0; i < container.children.length; i++) {
-        var field = container.children[i].children[1];
-        var fieldName = field.getAttribute('name');
-        // console.log(`name: ${fieldName}; value: ${info[fieldName]}`);
-        if (field.getAttribute('type') === 'checkbox') {
-            if (info[fieldName] && info[fieldName] == 1) { // should accept either 1 or "1"
-                field.setAttribute('checked', 'checked');
-            } else {
-                field.removeAttribute('checked');
-            }
-        } else {
-            field.value = info[fieldName] || '';
-            // when value for dropdown is not available - reset to blank and log
-            if (field.value !== '' && field.value !== info[fieldName]) {
-                console.log(`Cannot set ${fieldName} = ${info[fieldName]}`);
-                field.value = '';
-            }
-        }
-        if (field.tagName === 'SELECT' && field.onchange) { field.onchange() };
-    }
-}
+document.getElementById('BackNavigation').addEventListener('change', () => updateBrowser('BackNavigation', backOut));
+document.getElementById('FileBrowserForm').addEventListener('submit', (event) => { event.preventDefault(); updateBrowser('FileBrowserForm', diveIn); });
+document.getElementById('file-list').addEventListener('dblclick', () => updateBrowser('FileBrowserForm', diveIn));

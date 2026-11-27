@@ -1,91 +1,5 @@
-window.addEventListener('message', event => {
-	let message;
-	try {
-	  message = JSON.parse(event.data);
-	}
-	catch (e) {
-	  return;
-	}
-	console.log(message);
-});
-
-const templateSelect = document.getElementById("template-select");
-const templateItems =
-	document
-		.getElementById("template-select-dropdown")
-		?.querySelectorAll(".dropdown-item") ?? [];
-
-function selectTemplateItem(element) {
-	templateItems.forEach((item) => {
-		item.classList.remove("selected");
-	});
-	element.classList.add("selected");
-	templateSelect.innerHTML = element.textContent + ' <i class="fa fa-caret-down"></i>';
-}
-
-function ensureDefaults() {
-	const defaultTemplate =
-		document.getElementById("default") || templateItems[0];
-	if (defaultTemplate && !document.querySelector(".dropdown-item.selected")) {
-		selectTemplateItem(defaultTemplate);
-	}
-	const seedInput = document.getElementById("problemSeed");
-	if (seedInput && (!seedInput.value || seedInput.value.trim() === "")) {
-		const randSeed = 1 + Math.floor(Math.random() * 999999);
-		seedInput.value = randSeed;
-		seedInput.placeholder = randSeed;
-	}
-}
-
-function randomizeSeed() {
-	const seedInput = document.getElementById("problemSeed");
-	if (seedInput) {
-		const randSeed = 1 + Math.floor(Math.random() * 999999);
-		seedInput.value = randSeed;
-	}
-}
-
-for (const element of templateItems) {
-	element.addEventListener("click", (e) => {
-		e.preventDefault();
-		selectTemplateItem(element);
-	});
-}
-
-$(function () {
-	$("#hiddenSourceFilePath").text($("#sourceFilePath").val());
-	$("#sourceFilePath").width($("#hiddenSourceFilePath").width());
-}).on("input", function () {
-	$("#hiddenSourceFilePath").text($("#sourceFilePath").val());
-	$("#sourceFilePath").width($("#hiddenSourceFilePath").width() + 12);
-	const remaining =
-		document.querySelector(".topnav").offsetWidth -
-		document.querySelector("#template-select").offsetWidth -
-		280;
-	$("#sourceFilePath").css("maxWidth", remaining);
-});
-
-document.addEventListener("DOMContentLoaded", ensureDefaults);
-
-const randomizeSeedButton = document.getElementById("randomize-seed");
-if (randomizeSeedButton) {
-	randomizeSeedButton.addEventListener("click", randomizeSeed);
-}
-
-let loadbutton = document.getElementById("load-problem");
-let savebutton = document.getElementById("save-problem");
-let renderbutton = document.getElementById("render-button");
-let problemiframe = document.getElementById("rendered-problem");
-
-problemiframe.addEventListener("load", () => {
-	console.log("loaded...");
-	insertListener();
-	activeButton();
-});
-
-
-const editorContainer = document.querySelector('.code-mirror-editor');
-const defaultProblemSource = `DOCUMENT();
+(() => {
+  const defaultProblemSource = `DOCUMENT();
 
 loadMacros('PGstandard.pl', 'PGML.pl', 'parserRadioButtons.pl', 'PGcourse.pl');
 
@@ -105,242 +19,205 @@ The correct answer to the first is [$radio1->correct_ans].
 END_PGML_SOLUTION
 
 ENDDOCUMENT();`;
-const cm = new PGCodeMirrorEditor.View(editorContainer, {
-	source: defaultProblemSource,
-	language: 'pg',
-	theme: 'Cobalt'
-});
 
-savebutton.addEventListener("click", (_event) => {
-	const writeurl = "render-api/can";
+  const randomSeed = () => 1 + Math.floor(Math.random() * 999999);
+  const diagnosticLimit = 320;
 
-	let formData = new FormData();
+  function boundedDiagnostic(...values) {
+    const text = values.flat(Infinity)
+      .filter(value => value !== undefined && value !== null)
+      .map(value => String(value).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim())
+      .find(Boolean);
+    if (!text) return '';
+    return text.length > diagnosticLimit ? `${text.slice(0, diagnosticLimit - 1)}...` : text;
+  }
 
-	encoder = new TextEncoder();
-	formData.set(
-		"problemSource",
-		Base64.fromUint8Array(encoder.encode(cm.source))
-	);
+  function encodeSource(source) {
+    const bytes = new TextEncoder().encode(source);
+    if (typeof bytes.toBase64 === 'function') return bytes.toBase64();
 
-	formData.set(
-		"writeFilePath",
-		document.getElementById("sourceFilePath").value
-	);
-	const write_params = {
-		body: formData,
-		method: "post",
-	};
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 1) {
+      binary += String.fromCharCode(bytes[index]);
+    }
+    return btoa(binary);
+  }
 
-	fetch(writeurl, write_params)
-		.then(function (response) {
-			if (response.ok) {
-				return response.text();
-			} else {
-				return response.json();
-			}
-		})
-		.then(function (data) {
-			if (data.message) {
-				throw new Error("Could not write to file: " + data.message);
-			} else {
-				document.getElementById("currentEditPath").innerText =
-					document.getElementById("sourceFilePath").value;
-				alert("Successfully written to file: " + data);
-			}
-		})
-		.catch(function (e) {
-			alert(e.message);
-		});
-});
+  async function responseError(response, action) {
+    let detail = response.statusText;
+    try {
+      const body = await response.text();
+      if (body) detail = boundedDiagnostic(body) || detail;
+    } catch (_) {
+      // The status text is a suitable accessible fallback.
+    }
+    return new Error(`${action}: ${detail || `HTTP ${response.status}`}`);
+  }
 
-loadbutton.addEventListener("click", (event) => {
-	event.preventDefault();
-	const sourceurl = "render-api/tap";
+  function initializeEditor() {
+    const workspace = document.querySelector('.editor-workspace');
+    if (!workspace) return;
 
-	let formData = new FormData();
-	formData.set(
-		"sourceFilePath",
-		document.getElementById("sourceFilePath").value
-	);
-	const source_params = {
-		body: formData,
-		method: "post",
-	};
+    const sourcePath = document.getElementById('sourceFilePath');
+    const seedInput = document.getElementById('problemSeed');
+    const templateSelect = document.getElementById('template-select');
+    const currentEditPath = document.getElementById('currentEditPath');
+    const status = document.getElementById('render-status');
+    const iframe = document.getElementById('rendered-problem');
+    const editorContainer = document.querySelector('.code-mirror-editor');
+    const actionControls = [
+      document.getElementById('load-problem'),
+      document.getElementById('save-problem'),
+      document.getElementById('render-button'),
+      document.getElementById('randomize-seed')
+    ].filter(Boolean);
+    let actionPending = false;
 
-	fetch(sourceurl, source_params)
-		.then(function (response) {
-			if (response.ok) {
-				return response.text();
-			} else {
-				throw new Error(
-					"Could not reach the API: " + response.statusText
-				);
-			}
-		})
-		.then(function (data) {
-			cm.source = data;
-			document.getElementById("currentEditPath").innerText =
-				document.getElementById("sourceFilePath").value;
-		})
-		.catch(function (error) {
-			cm.source = error.message;
-			console.log(error.message);
-		});
-});
+    if (!sourcePath || !seedInput || !templateSelect || !currentEditPath || !status || !iframe || !editorContainer) return;
+    if (!window.PGCodeMirrorEditor) {
+      status.textContent = 'The source editor could not be loaded.';
+      status.dataset.state = 'error';
+      return;
+    }
 
-renderbutton.addEventListener("click", (event) => {
-	event.preventDefault();
-	document.getElementById("rendered-problem").srcdoc = "Loading...";
-	const renderurl = "render-api";
+    const cm = new PGCodeMirrorEditor.View(editorContainer, {
+      source: defaultProblemSource,
+      language: 'pg',
+      theme: 'Cobalt'
+    });
 
-	ensureDefaults();
-	const selectedformat = document.querySelector(".dropdown-item.selected");
-	let outputFormat;
-	if (selectedformat === null) {
-		console.log(typeof selectedformat);
-		alert("No output format selected. Defaulting to 'classic' format.");
-		outputFormat = "classic";
-	} else {
-		outputFormat = selectedformat.id;
-	}
-	let formData = new FormData();
-	formData.set("showComments", 1);
-	formData.set(
-		"sourceFilePath",
-		document.getElementById("sourceFilePath").value
-	);
-	formData.set("problemSeed", document.getElementById("problemSeed").value);
-	formData.set("outputFormat", outputFormat);
-	if (outputFormat == 'debug') formData.set("clientDebug", 1);
+    function setStatus(message, state = 'info') {
+      status.textContent = message;
+      status.dataset.state = state;
+    }
 
-	encoder = new TextEncoder();
-	formData.set(
-		"problemSource",
-		Base64.fromUint8Array(encoder.encode(cm.source))
-	);
+    async function runAction(pendingMessage, action) {
+      if (actionPending) return;
+      actionPending = true;
+      for (const control of actionControls) control.setAttribute('aria-disabled', 'true');
+      setStatus(pendingMessage);
+      try {
+        await action();
+      } catch (error) {
+        setStatus(error.message, 'error');
+      } finally {
+        actionPending = false;
+        for (const control of actionControls) control.removeAttribute('aria-disabled');
+      }
+    }
 
-	[...document.querySelectorAll(".checkbox-input:checked")]
-		.map((e) => e.name)
-		.forEach((box) => {
-			formData.append(box, 1);
-		});
-	formData.append("_format", "json");
-	const render_params = {
-		body: formData,
-		method: "post",
-	};
+    function ensureDefaults() {
+      if (!seedInput.value.trim()) seedInput.value = randomSeed();
+      if (!templateSelect.value) templateSelect.value = 'default';
+    }
 
-	fetch(renderurl, render_params)
-		.then(function (response) {
-			if (response.ok) {
-				return response.json();
-			} else {
-				throw new Error(
-					"Could not reach the API: " + response.statusText
-				);
-			}
-		})
-		.then(function (data) {
-			console.log("render data: ", data);
-			problemiframe.srcdoc = data.renderedHTML;
-			if (data.debug.perl_warn !== "") {
-				alert(data.debug.perl_warn.replace(/<br\/>/g, ""));
-			}
-		})
-		.catch(function (error) {
-			document.getElementById("rendered-problem").innerHTML =
-				error.message;
-		});
-	return true;
-});
+    function appendRenderOptions(formData) {
+      for (const checkbox of document.querySelectorAll('.checkbox-input:checked')) {
+        formData.append(checkbox.name, checkbox.value || '1');
+      }
+    }
 
-function activeButton() {
-	let problemForm =
-		problemiframe.contentWindow.document.getElementById("problemMainForm");
-	if (!problemForm) {
-		console.log("could not find form! has a problem been rendered?");
-		return;
-	}
-	problemForm.querySelectorAll(".btn-primary").forEach((button) => {
-		button.addEventListener("click", () => {
-			button.classList.add("btn-clicked");
-		});
-	});
-}
+    function appendSource(formData) {
+      ensureDefaults();
+      formData.set('sourceFilePath', sourcePath.value);
+      formData.set('problemSeed', seedInput.value);
+      formData.set('outputFormat', templateSelect.value);
+      formData.set('problemSource', encodeSource(cm.source));
+    }
 
-function insertListener() {
-	// assuming global problemiframe - too sloppy?
-	let problemForm =
-		problemiframe.contentWindow.document.getElementById("problemMainForm");
-	// don't croak when the empty iframe is first loaded
-	if (!problemForm) {
-		console.log("could not find form! has a problem been rendered?");
-		return;
-	}
-	problemForm.addEventListener("submit", (event) => {
-		event.preventDefault();
-		let formData = new FormData(problemForm);
-		let clickedButton = problemForm.querySelector(".btn-clicked");
-		formData.set("_format", "json");
-		const selectedformat = document.querySelector(
-			".dropdown-item.selected"
-		);
-		ensureDefaults();
-		let outputFormat;
-		if (selectedformat === null) {
-			alert("No output format selected. Defaulting to 'classic' format.");
-			outputFormat = "classic";
-		} else {
-			outputFormat = selectedformat.id;
-		}
-		formData.set("isInstructor", 1);
-		formData.set("includeTags", 1);
-		formData.set("showComments", 1);
-		formData.set(
-			"sourceFilePath",
-			document.getElementById("sourceFilePath").value
-		);
-		formData.set(
-			"problemSeed",
-			document.getElementById("problemSeed").value
-		);
-		formData.set("outputFormat", outputFormat);
-		formData.set(clickedButton.name, clickedButton.value);
+    async function render(formData) {
+      const response = await fetch('render-api', { method: 'POST', body: formData });
+      if (!response.ok) throw await responseError(response, 'Could not render the problem');
+      const data = await response.json();
+      if (data.flags?.error_flag) {
+        const diagnostic = boundedDiagnostic(
+          data.errors,
+          data.error,
+          data.message,
+          data.flags.error_message,
+          data.flags.error,
+          data.flags.comment,
+          data.pg_warnings,
+          data.warning_messages
+        );
+        throw new Error(diagnostic ? `The problem has translator errors: ${diagnostic}` : 'The problem has translator errors.');
+      }
+      if (!data.renderedHTML) throw new Error('The renderer returned no problem HTML.');
 
-		encoder = new TextEncoder();
-		formData.set(
-			"problemSource",
-			Base64.fromUint8Array(encoder.encode(cm.source))
-		);
+      iframe.srcdoc = data.renderedHTML;
+      const warning = data.debug && data.debug.perl_warn;
+      const warningText = boundedDiagnostic(warning);
+      setStatus(warningText ? `Rendered with warning: ${warningText}` : 'Rendered successfully.', warningText ? 'warning' : 'success');
+    }
 
-		[...document.querySelectorAll(".checkbox-input:checked")]
-			.map((e) => e.name)
-			.forEach((box) => {
-				formData.append(box, 1);
-			});
-		const submiturl = "render-api";
-		const submit_params = {
-			body: formData,
-			method: "post",
-		};
+    document.getElementById('randomize-seed')?.addEventListener('click', () => {
+      if (actionPending) return;
+      seedInput.value = randomSeed();
+      setStatus('A new seed is ready to render.');
+    });
 
-		fetch(submiturl, submit_params)
-			.then(function (response) {
-				if (response.ok) {
-					return response.json();
-				} else {
-					throw new Error(
-						"Could not submit your answers: " + response.statusText
-					);
-				}
-			})
-			.then(function (data) {
-				console.log("render data: ", data);
-				problemiframe.srcdoc = data.renderedHTML;
-			})
-			.catch(function (error) {
-				document.getElementById("rendered-problem").innerHTML =
-					error.message;
-			});
-	});
-}
+    document.getElementById('save-problem')?.addEventListener('click', () => {
+      void runAction('Saving problem source...', async () => {
+        const writeFilePath = sourcePath.value;
+        const formData = new FormData();
+        formData.set('problemSource', encodeSource(cm.source));
+        formData.set('writeFilePath', writeFilePath);
+        const response = await fetch('render-api/can', { method: 'POST', body: formData });
+        if (!response.ok) throw await responseError(response, 'Could not save the file');
+        const data = await response.text();
+        currentEditPath.textContent = writeFilePath || 'Unsaved editor contents';
+        setStatus(data ? `Saved ${writeFilePath}.` : 'Saved problem source.', 'success');
+      });
+    });
+
+    document.getElementById('load-problem')?.addEventListener('click', () => {
+      void runAction('Loading problem source...', async () => {
+        const requestedPath = sourcePath.value;
+        const formData = new FormData();
+        formData.set('sourceFilePath', requestedPath);
+        const response = await fetch('render-api/tap', { method: 'POST', body: formData });
+        if (!response.ok) throw await responseError(response, 'Could not load the file');
+        cm.source = await response.text();
+        currentEditPath.textContent = requestedPath || 'Unsaved editor contents';
+        setStatus(`Loaded ${requestedPath || 'problem source'}.`, 'success');
+      });
+    });
+
+    document.getElementById('render-button')?.addEventListener('click', () => {
+      void runAction('Rendering problem...', async () => {
+        const formData = new FormData();
+        formData.set('showComments', '1');
+        appendSource(formData);
+        if (templateSelect.value === 'debug') formData.set('clientDebug', '1');
+        appendRenderOptions(formData);
+        formData.set('_format', 'json');
+        await render(formData);
+      });
+    });
+
+    iframe.addEventListener('load', () => {
+      const problemForm = iframe.contentDocument?.getElementById('problemMainForm');
+      if (!problemForm || problemForm.dataset.rendererBound) return;
+      problemForm.dataset.rendererBound = 'true';
+      problemForm.addEventListener('submit', event => {
+        event.preventDefault();
+        void runAction('Checking answer...', async () => {
+          const formData = new FormData(problemForm);
+          const submitter = event.submitter;
+          if (submitter?.name) formData.set(submitter.name, submitter.value);
+          formData.set('_format', 'json');
+          formData.set('isInstructor', '1');
+          formData.set('includeTags', '1');
+          formData.set('showComments', '1');
+          appendSource(formData);
+          appendRenderOptions(formData);
+          await render(formData);
+        });
+      });
+    });
+
+    ensureDefaults();
+  }
+
+  document.addEventListener('DOMContentLoaded', initializeEditor);
+})();

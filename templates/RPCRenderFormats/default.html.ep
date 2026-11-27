@@ -1,9 +1,11 @@
 % use WeBWorK::Utils qw(getAssetURL wwRound);
+% my $renderer_language = $rh_result->{inputs_ref}{language} // 'en';
 %
 <!DOCTYPE html>
 <html <%== $COURSE_LANG_AND_DIR %>>
 <head>
 	<meta charset='utf-8'>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<base href="<%= $SITE_URL %>">
 	<title>
 		WeBWorK using host: <%= $SITE_URL %>,
@@ -12,22 +14,24 @@
 	<link href="<%= "images/favicon.ico" %>" rel="shortcut icon">
 	% # Add third party css and javascript as well as css and javascript requested by the problem.
 	% for (@$third_party_css) {
-		%= stylesheet $_
+		%= tag 'link', rel => 'stylesheet', href => $_
 	% }
+	%= tag 'link', rel => 'stylesheet', href => getAssetURL($renderer_language, 'css/fonts.css')
+	%= tag 'link', rel => 'stylesheet', href => getAssetURL($renderer_language, 'css/pg-modern.css')
 	% for (@$extra_css_files) {
-		%= stylesheet $_->{file}
+		%= tag 'link', rel => 'stylesheet', href => $_->{file}
 	% }
 	% for (@$third_party_js) {
-		%= javascript $_->[0], %{ $_->[1] // {} }
+		%= tag 'script', src => $_->[0], %{ $_->[1] // {} }
 	% }
 	% for (@$extra_js_files) {
-		%= javascript $_->{file}, %{ $_->{attributes} }
+		%= tag 'script', src => $_->{file}, %{ $_->{attributes} }
 	% }
 	%== $rh_result->{header_text} // ''
 	%== $rh_result->{post_header_text} // ''
 	%== $extra_header_text
 </head>
-<body onLoad="window.parent.postMessage('loaded', '*')">
+<body class="renderer-problem" onLoad="window.parent.postMessage('loaded', '*')">
 	<div class="container-fluid">
 		<div class="row g-0">
 			<div class="col-12 problem">
@@ -54,7 +58,7 @@
 						%= hidden_field clientDebug => $rh_result->{inputs_ref}{clientDebug}
 					% }
 					% if ($formatName ne 'static') {
-						<div class="submit-buttons-container col-12 mb-2">
+						<div class="submit-buttons-container renderer-problem-actions col-12 mb-2">
 							% # Submit buttons (preview and submit are shown by default)
 							% if ($showPreviewButton ne '0') {
 								<%= submit_button $lh->maketext('Preview My Answers'),

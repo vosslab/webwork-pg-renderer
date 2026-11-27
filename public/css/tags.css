@@ -1,38 +1,45 @@
-  .wrapper {
-    background-color: whitesmoke;
-    list-style-type: none;
-    padding: 0;
-  }
+#problem-tags {
+  display: grid;
+  gap: 1rem;
+}
 
-  .form-row {
-    display: flex;
-    justify-content: flex-end;
-    padding: .5em;
-  }
+.tag-group {
+  display: grid;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--renderer-border);
+  border-radius: 0.5rem;
+}
 
-  .form-row > label {
-    padding: .5em 1em .5em 0;
-  }
+.tag-group legend {
+  padding-inline: 0.25rem;
+  font-weight: 700;
+}
 
-  .form-row > input,
-  .form-row > textarea,
-  .form-row > select {
-    width: 100%;
-    text-overflow: ellipsis;
-    flex: 1;
-  }
+.form-row {
+  display: grid;
+  gap: 0.3rem;
+}
 
-  .form-row > select > option {
-    overflow:hidden;
-  }
+.form-row > :is(input:not([type="checkbox"]), textarea, select) {
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--renderer-control-border);
+  border-radius: 0.375rem;
+  background: var(--renderer-surface);
+  color: var(--renderer-text);
+}
 
-  .form-row > input,
-  .form-row > button {
-    padding: .5em;
-  }
+.form-row > textarea {
+  min-block-size: 5rem;
+  resize: vertical;
+}
 
-  .form-row > button {
-   background: gray;
-   color: white;
-   border: 0;
-  }
+.form-row:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

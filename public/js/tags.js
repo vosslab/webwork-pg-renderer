@@ -1,82 +1,68 @@
-function updateDBsubject() {
-    var subjectSelect = window.document.getElementById('db-subject');
-    var subjects = Object.keys(taxo) || [];
-    addOptions(subjectSelect, subjects);
+function setTagStatus(message, isError = false) {
+    const status = document.getElementById('tag-status');
+    status.textContent = message;
+    status.dataset.state = isError ? 'error' : 'ready';
 }
 
-function updateDBchapter() {
-    var subjectSelect = window.document.getElementById('db-subject');
-    var subject = subjectSelect.options[subjectSelect.selectedIndex]?.value;
-    var chapterSelect = window.document.getElementById('db-chapter')
-    var chapters = (taxo[subject]) ? Object.keys(taxo[subject]) : [];
-    addOptions(chapterSelect, chapters);
+function addOptions(selectElement, optionsArray, selectedValue = '') {
+    const options = [
+        Object.assign(document.createElement('option'), { value: '', textContent: 'blank' }),
+        ...optionsArray.map((value) => Object.assign(document.createElement('option'), { value, textContent: value }))
+    ];
+    selectElement.replaceChildren(...options);
+    selectElement.value = selectedValue;
 }
 
-function updateDBsection() {
-    var subjectSelect = window.document.getElementById('db-subject');
-    var subject = subjectSelect.options[subjectSelect.selectedIndex]?.value;
-    var chapterSelect = window.document.getElementById('db-chapter');
-    var chapter = chapterSelect.options[chapterSelect.selectedIndex]?.value;
-    var sectionSelect = window.document.getElementById('db-section');
-    var sections = (taxo[subject] && taxo[subject][chapter]) ? taxo[subject][chapter] : [];
-    addOptions(sectionSelect, sections);
+function updateDBsubject(selectedValue = '') {
+    addOptions(document.getElementById('db-subject'), Object.keys(taxo || {}), selectedValue);
 }
 
-function addOptions(selectElement, optionsArray) {
-    if (selectElement.innerHTML) { selectElement.innerHTML = '' }
-    optionsArray.forEach(function (opt) {
-        var option = document.createElement('option');
-        option.value = opt;
-        option.text = opt;
-        selectElement.add(option);
-    });
-    var emptyOption = document.createElement('option');
-    emptyOption.value = '';
-    emptyOption.text = 'blank';
-    selectElement.add(emptyOption, 0);
-    selectElement.selectedIndex = 0;
+function updateDBchapter(selectedValue = '') {
+    const subject = document.getElementById('db-subject').value;
+    addOptions(document.getElementById('db-chapter'), Object.keys((taxo || {})[subject] || {}), selectedValue);
+    updateDBsection();
 }
 
-function submitTags(e) {
-    e.preventDefault();
-    var formData = new FormData(e.target);
-
-    // disassemble the Description
-    formData = parseStringAndAppend(formData, 'Description');
-
-    // disassemble the list of keywords
-    formData = parseStringAndAppend(formData, 'Keywords');
-
-    // disassemble any resources
-    formData = parseStringAndAppend(formData, 'Resources');
-
-    var params = {
-        body: formData,
-        method: 'post'
-    };
-    fetch(e.target.action, params)
-    .then( function (resp) {
-        if (resp.ok) {
-            return resp.json();
-        } else {
-            throw new Error("Something went wrong: " + resp.statusText);
-        }
-    })
-    .then( d => updateMetadata(d) )
-    .catch( e => {console.log(e); alert(e.message);} );
+function updateDBsection(selectedValue = '') {
+    const subject = document.getElementById('db-subject').value;
+    const chapter = document.getElementById('db-chapter').value;
+    addOptions(document.getElementById('db-section'), ((taxo || {})[subject] || {})[chapter] || [], selectedValue);
 }
 
-// uses the convention that tags want these arrays as lowercase
-// UI uses the joined string in key with first-capital
 function parseStringAndAppend(formData, elementName) {
-    var string = window.document.getElementsByName(elementName)[0].value;
-    if (string && string !== '') {
-        var array = string.split(',').map(el => el.trim());
-        array.forEach(item => formData.append(elementName.toLowerCase(), item));
-        formData.delete(elementName);
-    }
+    const field = document.getElementsByName(elementName)[0];
+    const values = field.value.split(',').map((value) => value.trim()).filter(Boolean);
+    formData.delete(elementName);
+    values.forEach((value) => formData.append(elementName.toLowerCase(), value));
     return formData;
 }
 
+function submitTags(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const file = document.getElementById('tag-filename').value;
+    if (!file) {
+        setTagStatus('Load a problem before saving tags.', true);
+        return;
+    }
+    let formData = new FormData(form);
+    ['Description', 'Keywords', 'Resources'].forEach((name) => { formData = parseStringAndAppend(formData, name); });
+    setTagStatus('Saving tags...');
+    fetch(form.action, { body: formData, method: 'POST' })
+        .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Save failed: ${response.status}`)))
+        .then((data) => {
+            updateMetadata(data);
+            setTagStatus(`Saved tags for ${file}.`);
+            setLibraryStatus(`Saved tags for ${file}.`);
+        })
+        .catch((error) => {
+            console.error(error);
+            setTagStatus(error.message, true);
+            setLibraryStatus(error.message, true);
+        });
+}
+
 updateDBsubject();
-window.document.getElementById('problem-tags').addEventListener('submit', submitTags);
+document.getElementById('db-subject').addEventListener('change', updateDBchapter);
+document.getElementById('db-chapter').addEventListener('change', updateDBsection);
+document.getElementById('problem-tags').addEventListener('submit', submitTags);

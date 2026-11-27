@@ -17,6 +17,9 @@
 - Resolve renderer assets relative to the configured base URL and load the installed MathJax v4
   SVG component from its current package path.
 - Fix the project license link and add missing type annotations in the PG lint helper.
+- Lead the README with a worked DNA question, fresh editor and library screenshots, and a
+  Podman quick start. Document how to recapture both views and find the full API reference.
+- Add a six-problem screenshot gallery to show the renderer's diagrams, data, and answer inputs.
 
 ### Removals and Deprecations
 

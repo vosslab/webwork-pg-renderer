@@ -2,6 +2,48 @@
 
 How to use Playwright for browser automation and visual testing in this repo.
 
+## Capture README screenshots
+
+Start the renderer in development mode with [the README quick start](../README.md#quick-start).
+For the library view, use a checkout where `private/` contains just the bundled `sample.pg`.
+With Node.js and `cwebp` installed, run these commands from the repository root.
+
+```bash
+capture_dir=$(mktemp -d /tmp/webwork_readme.XXXXXX)
+npm install --prefix "$capture_dir" --no-save --no-package-lock playwright
+"$capture_dir/node_modules/.bin/playwright" install chromium
+NODE_PATH="$capture_dir/node_modules" node devel/capture_readme.cjs \
+  http://localhost:3000 "$capture_dir"
+
+for view in renderer_editor renderer_library; do
+  cwebp -q 90 "$capture_dir/$view.png" -o "$capture_dir/$view.webp"
+  cp "$capture_dir/$view.webp" docs/screenshots/
+done
+```
+
+The [capture script](../devel/capture_readme.cjs) opens the DNA question at seed `1234` in the
+editor and library. Inspect both final WebPs before updating the README.
+
+### Capture the problem gallery
+
+The [gallery capture script](../devel/capture_problem_gallery.cjs) renders six questions from
+[Biology Problems](https://github.com/vosslab/biology-problems) at seed `1234`. With the renderer
+running, reuse `capture_dir` from the setup above.
+
+```bash
+git clone https://github.com/vosslab/biology-problems.git "$capture_dir/biology-problems"
+NODE_PATH="$capture_dir/node_modules" node devel/capture_problem_gallery.cjs \
+  "$capture_dir/biology-problems" http://localhost:3000 "$capture_dir"
+
+for png in "$capture_dir"/gallery_*.png; do
+  webp="${png%.png}.webp"
+  cwebp -q 90 "$png" -o "$webp"
+  cp "$webp" docs/screenshots/
+done
+```
+
+Inspect the six final WebPs at full size before replacing the gallery.
+
 ## Install
 
 Playwright is a dev dependency. If the repo does not already have a

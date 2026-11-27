@@ -10,6 +10,12 @@ This document describes the HTTP API for rendering PG or PGML problems from scri
 - Compatibility endpoint: `POST /render-api`.
 - Health check: `GET /health`.
 
+Use a relative `baseURL` to serve the renderer and its assets below a path on `SITE_HOST`.
+An absolute `baseURL` sets the public asset base for proxied renders. `formURL` controls where
+interactive problem forms submit answers. It accepts a path relative to the renderer base or an
+absolute URL for an intermediary service. Copy [render_app.conf.dist](../render_app.conf.dist)
+to `render_app.conf` and set these values there.
+
 ## Request format
 
 - The renderer reads request parameters from form/query params and merges JSON bodies.
@@ -31,7 +37,7 @@ This document describes the HTTP API for rendering PG or PGML problems from scri
 | Key | Type | Default | Notes |
 | --- | ---- | ------- | ----- |
 | problemSeed | number | required | Seed for reproducible randomization. |
-| outputFormat | string | `default` | Output style (also supports `static`, `ptx`, `raw`). |
+| outputFormat | string | `default` | Output style (`default`, `static`, `debug`, `ptx`). |
 | displayMode | string | `MathJax` | Math rendering mode (`MathJax` or `ptx`). |
 | _format | string | `html` | Response structure (`html` or `json`). |
 
@@ -42,7 +48,7 @@ curl -X POST "http://localhost:3000/render-api" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "sourceFilePath=private/myproblem.pg" \
   --data-urlencode "problemSeed=1234" \
-  --data-urlencode "outputFormat=html"
+  --data-urlencode "outputFormat=default"
 ```
 
 ## JSON request example
@@ -53,15 +59,14 @@ curl -X POST "http://localhost:3000/render-api" \
   -d '{
     "sourceFilePath": "private/myproblem.pg",
     "problemSeed": 1234,
-    "outputFormat": "html"
+    "outputFormat": "default"
   }'
 ```
 
 ## Response format
 
-- Use `_format` to control response structure:
-  - `_format: "html"` returns HTML content (default).
-  - `_format: "json"` returns JSON describing the render.
+- Set `Accept: application/json` to request JSON describing the render. Form submissions can
+  also select the response with the `_format` parameter. Clients receive HTML by default.
 - Errors return non-200 status codes with a JSON payload containing `message` and `status`.
 - When `isInstructor=1`, JSON responses include an `inputs` echo of the resolved request parameters.
 
@@ -174,7 +179,9 @@ Example JSON payload with base64 content:
 
 ## Rendering and display options
 
-- `outputFormat`: controls the problem output style (`default`, `static`, `ptx`, `raw`).
+- `outputFormat`: controls the problem output style. Use `static` to omit answer buttons and
+  `debug` to inspect diagnostics. The legacy `raw` and `json` output templates currently return
+  HTTP 500. For a structured response, use `_format: "json"` with `outputFormat: "default"`.
 - `displayMode`: controls math display (`MathJax` or `ptx`).
 - `language`: locale identifier (default `en`).
 
@@ -200,6 +207,16 @@ Example JSON payload with base64 content:
 - `POST /render-api/jwt` returns a problem JWT based on the request parameters.
 - `POST /render-api/jwe` returns a JWE-encrypted problem JWT.
 - When a `problemJWT` is provided, its values override request parameters.
+
+Three tokens carry state between render requests.
+
+- `problemJWT` stores the problem source and render settings. Claims such as `isInstructor`
+  take precedence over form fields.
+- `sessionJWT` carries the problem token, answer entries, and attempt counts. Submit it with
+  the next request to recover the previous attempt state.
+- `answerJWT` carries the score and session token. If a trusted `problemJWT` configures
+  `JWTanswerURL`, the renderer sends the answer token there when answers are submitted to an
+  unlocked problem.
 
 ### JWT flow example
 

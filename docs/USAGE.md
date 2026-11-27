@@ -14,25 +14,28 @@ Use the same cycle every time: run, check, adjust, rerun.
 - Render, fix issues, and repeat until it looks right.
 - Import the final file into ADAPT.
 
-## Optional but recommended: local renderer setup
+## Run the renderer locally
 
-This is a copy and paste setup. You do not need to learn Docker.
+Use the [README quick start](../README.md#quick-start) to build the Podman image and render the
+bundled DNA question. You can also start with the ADAPT preview and use the local editor for
+problems that need debugging.
 
-### Option A: run locally
+### Native development setup
 
-- Start the container:
+For a native setup, use Node.js 24.11 or later, Perl, and the system and Perl dependencies
+listed in [Dockerfile](../Dockerfile) and [cpanfile](../cpanfile). From the renderer checkout,
+install PG and build the browser assets.
 
 ```bash
-podman-compose build --no-cache && podman-compose up -d
+git clone --depth 1 --branch PG-2.17+ https://github.com/openwebwork/pg.git lib/PG
+cp conf/pg_config.yml lib/PG/conf/pg_config.yml
+(cd public && npm ci)
+(cd lib/PG/htdocs && npm install)
+morbo -l http://127.0.0.1:3000 script/render_app
 ```
 
-- Open the renderer at `http://localhost:3000` (POST `/` for renders; `/render-api` remains supported).
-- Stop it later with `podman-compose down`.
-
-### Option B: skip local setup
-
-If you want to move fast, start with the ADAPT preview and only use this renderer when
-something breaks or looks odd.
+Copy [render_app.conf.dist](../render_app.conf.dist) to `render_app.conf` when you need local
+configuration overrides.
 
 ## Reproducibility and the seed
 
@@ -45,11 +48,17 @@ Files in `private/` on your computer appear inside the tool as `private/`.
 For example, `private/myproblem.pg` is the same as your local file
 `private/myproblem.pg`.
 
+Use the `.pg` extension when opening or saving PG source in the editor, including source that
+uses PGML. For access to the [Open Problem Library](https://github.com/openwebwork/webwork-open-problem-library),
+place its checkout at `webwork-open-problem-library/` in the renderer root before building the
+container or starting a native server. Its `OpenProblemLibrary/` directory appears as `Library/`
+in the browser.
+
 ## Student view checks
 
 These settings help you decide if you are debugging or reviewing what students see.
 
-- `permissionLevel`: switch between student and instructor style output.
+- `isInstructor`: switch between student and instructor output.
 - `showHints` and `showSolutions`: verify what is visible to students.
 - `outputFormat`: confirm the simplest format before using more complex formats.
 

@@ -127,7 +127,7 @@
 #sourceFilePath {
   flex: 1 1 8rem;
   min-inline-size: 0;
-  font-family: var(--renderer-font-code, monospace);
+  font-family: "IBM Plex Sans Condensed", var(--renderer-font-ui, Arial, sans-serif);
 }
 
 #problemSeed {

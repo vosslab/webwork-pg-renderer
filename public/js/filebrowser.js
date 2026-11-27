@@ -1,3 +1,8 @@
+const rootFolders = Object.fromEntries(Array.from(
+    document.getElementById('file-list').options,
+    (option) => [option.text, option.value]
+));
+
 function setLibraryStatus(message, isError = false) {
     const status = document.getElementById('opl-status');
     if (!status) return;
@@ -19,15 +24,24 @@ function updateBrowser(formId, updateBackNav) {
     const option = selectedOption(form);
     if (!option) return;
     const value = option.value;
+    if (value === '/') {
+        resetBackNav();
+        return;
+    }
     const formData = new FormData();
     let target = form.action;
     let processData;
 
     if (value.endsWith('/')) {
+        const folder = value.replace(/^\//, '');
         formData.set('maxDepth', '1');
-        formData.set('basePath', value.replace(/^\//, ''));
+        formData.set('basePath', folder);
         processData = (data) => {
-            updateFileList(data);
+            const children = Object.fromEntries(Object.entries(data).map(([name, path]) => {
+                const suffix = path.endsWith('/') ? '/' : '';
+                return [name, `${folder}${name}${suffix}`];
+            }));
+            updateFileList(children);
             updateBackNav(option.text);
             setLibraryStatus(`Showing ${option.text || 'root'} directory.`);
         };
@@ -88,10 +102,11 @@ function backOut() {
 }
 
 function resetBackNav() {
-    updateFileList({ Contrib: 'Contrib/', Library: 'Library/', Pending: 'Pending/', private: 'private/' });
+    updateFileList(rootFolders);
     const select = document.getElementById('back-nav');
     select.selectedIndex = select.options.length - 1;
     backOut();
+    setLibraryStatus('Choose a folder or problem to begin.');
 }
 
 function updateRawMetadata(text) {

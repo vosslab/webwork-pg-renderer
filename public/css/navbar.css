@@ -141,6 +141,7 @@ select.app-field:hover {
 }
 
 .app-button {
+  min-inline-size: var(--renderer-control-height);
   border: 1px solid var(--renderer-action);
   background: var(--renderer-action);
   color: #ffffff;

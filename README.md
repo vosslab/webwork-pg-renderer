@@ -12,7 +12,7 @@ In the library, you can browse problem files, preview a selection, and edit its 
 
 <!-- screenshots:begin (managed by screenshot-docs) -->
 ![WeBWorK code editor beside the rendered DNA question at seed 1234](docs/screenshots/renderer_editor.webp)
-![Problem library with sample.pg selected, a DNA question preview, and editable tags](docs/screenshots/renderer_library.webp)
+![File browser with sample.pg selected, a DNA question preview, and editable tags](docs/screenshots/renderer_library.webp)
 <!-- screenshots:end -->
 
 ## Quick start
@@ -55,13 +55,13 @@ The animation is shared under [CC BY-NC-SA 4.0](https://creativecommons.org/lice
 
 - Put your `.pg` files in `private/`, including questions written in PGML. Load one, edit the
   source, and render again. Set a new **File path** before choosing **Save** to keep a separate copy.
-- If a randomized variant needs a fix, keep its seed while you edit. Try **New seed** after the
-  fix to preview other variants.
+- If a randomized variant needs a fix, keep its seed while you edit. Use the dice button to try
+  a new seed after the fix.
 - Use **Show hints** to proofread any hints you wrote, and **Debug** to inspect rendering
   diagnostics.
-- In **Problem library**, open `private`, select a file, and choose **Open selected item** to
-  preview it and review or edit its tags. An installed Open Problem Library appears under
-  `Library` and `Contrib`.
+- In **Files**, open `private`, select a file, and choose **Open selected item** to preview it
+  and review or edit its tags. With the Open Problem Library installed, the same link is labeled
+  **OPL** and also shows the installed library folders.
 
 ## Render from a script
 

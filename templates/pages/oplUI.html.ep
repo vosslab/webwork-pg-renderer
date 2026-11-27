@@ -2,7 +2,7 @@
 % layout 'navbar';
 <link rel="stylesheet" href="css/opl-flex.css">
 <section class="library-workspace" aria-labelledby="library-title">
-  <h1 id="library-title">Problem library</h1>
+  <h1 id="library-title"><%= stash('opl_available') ? 'Open Problem Library' : 'Files' %></h1>
   <p id="opl-status" class="app-status" role="status" aria-live="polite">Choose a folder or problem to begin.</p>
   <div class="library-grid">
     <section id="library-browser-panel" class="app-panel library-panel" aria-labelledby="browser-title">

@@ -17,7 +17,8 @@
       <a class="app-brand" href="./">WeBWorK renderer</a>
       <nav class="app-nav" aria-label="Renderer sections">
         <a id="editor-nav" href="./" aria-current="<%= $current_page eq 'editor' ? 'page' : 'false' %>">Editor</a>
-        <a id="library-nav" href="opl" aria-current="<%= $current_page eq 'library' ? 'page' : 'false' %>">Problem library</a>
+        <a id="library-nav" href="opl" aria-current="<%= $current_page eq 'library' ? 'page' : 'false' %>"
+          title="<%= stash('opl_available') ? 'Open Problem Library' : 'Local problem files' %>"><%= stash('opl_available') ? 'OPL' : 'Files' %></a>
       </nav>
       % if ($current_page eq 'editor') {
         %= include 'columns/editor_controls'

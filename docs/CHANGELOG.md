@@ -9,6 +9,10 @@
 - Fit file and render settings in a compact top bar with distinct buttons, field labels, and
   a dropdown chevron. Share control sizing and button styles between the editor and library.
   Give most of the desktop viewport to the source and rendered preview.
+- Restore the dice icon for New seed and keep its text label for assistive technology.
+- Label the browser OPL when the Open Problem Library is installed and Files otherwise. List
+  available library folders alongside local problems and open them using their renderer paths.
+- Set the File path textbox in IBM Plex Sans Condensed to fit more of long paths.
 - Update the static asset installation check page to match the renderer interface.
 - Bundle Atkinson Hyperlegible Next and Mono for the interface and generated problems. Load
   renderer defaults ahead of problem-authored styles so problems can override them.

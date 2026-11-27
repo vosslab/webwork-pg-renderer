@@ -7,7 +7,7 @@
 <form action="render-api/cat" method="post" id="FileBrowserForm" class="browser-form browser-files">
   %= hidden_field maxDepth => 1
   <label for="file-list">Folders and problems</label>
-  %= select_field basePath => [[Contrib => 'Contrib/'], [Library => 'Library/'], [Pending => 'Pending/'], [private => 'private/']], id => 'file-list', class => 'file-list', size => 12
+  %= select_field basePath => [@{stash('opl_folders') // []}, [private => 'private/']], id => 'file-list', class => 'file-list', size => 12
   <button type="submit" id="open-browser-item" class="app-button">Open selected item</button>
   <p class="browser-help">Double-click an item to open it.</p>
 </form>

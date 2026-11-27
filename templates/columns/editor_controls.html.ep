@@ -13,7 +13,8 @@
     <div class="editor-field">
       <label for="problemSeed">Seed</label>
       <input type="number" class="app-field" id="problemSeed" name="problemSeed" inputmode="numeric" min="1" max="999999" autocomplete="off">
-      <button type="button" class="app-button app-button--secondary" id="randomize-seed">New seed</button>
+      <button type="button" class="app-button app-button--secondary" id="randomize-seed"
+        aria-label="New seed" title="New seed"><span aria-hidden="true">&#x1F3B2;</span></button>
     </div>
     <div class="editor-field">
       <label for="template-select">Template</label>

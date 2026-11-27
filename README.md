@@ -1,18 +1,17 @@
 # WeBWorK PG Renderer and Editor
 
-Edit WeBWorK PG and PGML problems beside a live preview. Instructors and problem authors can reproduce randomized variants, try student answers, and check a question before assigning it.
+Write, preview, and debug WeBWorK problems in your browser. Edit PG or PGML source beside its rendered preview, and reuse a seed to reproduce a variant while you work.
 
 With the renderer running, open the [local editor](http://localhost:3000/).
 
-## From source to student view
+## From source to preview
 
-At seed `1234`, the bundled DNA question asks students to identify a false statement about DNA
-structure. Reuse the seed to get the same prompt and choices. The editor shows the source beside
-the interactive question and displays feedback after an answer is submitted. The library lets
-you browse problem files, preview a selection, and edit its keywords and other metadata.
+At seed `1234`, the bundled DNA question renders a prompt and a fixed set of choices. Edit the
+source on the left and render again to see how your changes affect the question on the right.
+In the library, you can browse problem files, preview a selection, and edit its tags.
 
 <!-- screenshots:begin (managed by screenshot-docs) -->
-![PG source beside the DNA question with a selected answer and a 100% score](docs/screenshots/renderer_editor.webp)
+![WeBWorK code editor beside the rendered DNA question at seed 1234](docs/screenshots/renderer_editor.webp)
 ![Problem library with sample.pg selected, a DNA question preview, and editable tags](docs/screenshots/renderer_library.webp)
 <!-- screenshots:end -->
 
@@ -30,29 +29,36 @@ podman-compose up -d
 
 1. In the editor, enter `private/sample.pg` in **File path** and select **Load**.
 2. Set **Seed** to `1234`, leave **Template** on **Default**, and select **Render problem**.
-3. Choose an answer in the preview and select **Submit Answers** to see the feedback.
+3. On the `$topic` line, change `the structure of DNA` to `DNA structure`. Select **Render
+   problem** again and check that the prompt uses your new wording.
 
 Run `podman-compose down` from the checkout to stop the server.
 
 ## Problem gallery
 
 Explore six questions by Neil R. Voss from [Biology Problems](https://github.com/vosslab/biology-problems).
-Select a screenshot to open it at full size.
+Select an image to enlarge it or replay the animation. **Full question** opens the complete
+rendered output.
 
-| Structures and diagrams | Data and answer formats |
+| Source and preview | Render details |
 | --- | --- |
-| **Fischer projection**<br>[![Carbohydrate structure with classification choices](docs/screenshots/gallery_fischer.webp)](docs/screenshots/gallery_fischer.webp) | **Estimate K<sub>M</sub>**<br>[![Michaelis-Menten data table with a numeric answer field](docs/screenshots/gallery_kinetics_table.webp)](docs/screenshots/gallery_kinetics_table.webp) |
-| **Protein ladder**<br>[![Colored electrophoresis bands for estimating molecular weight](docs/screenshots/gallery_ladder.webp)](docs/screenshots/gallery_ladder.webp) | **Enzyme inhibition**<br>[![Michaelis-Menten curves comparing reactions with and without an inhibitor](docs/screenshots/gallery_inhibitor.webp)](docs/screenshots/gallery_inhibitor.webp) |
-| **Membrane transporter**<br>[![Membrane transport diagram with transporter classification choices](docs/screenshots/gallery_transporter.webp)](docs/screenshots/gallery_transporter.webp) | **Amino acid matching**<br>[![Amino acid properties with matching controls](docs/screenshots/gallery_amino_matching.webp)](docs/screenshots/gallery_amino_matching.webp) |
+| **Fischer projection**<br>[![PGML in the WeBWorK editor beside a carbohydrate structure and classification choices](docs/screenshots/gallery_fischer_editor.webp)](docs/screenshots/gallery_fischer_editor.webp)<br>[Full question](docs/screenshots/gallery_fischer.webp) | **Estimate K<sub>M</sub>**<br>[![Michaelis-Menten data table with a numeric answer field](docs/screenshots/gallery_kinetics_table_preview.webp)](docs/screenshots/gallery_kinetics_table_preview.webp)<br>[Full question](docs/screenshots/gallery_kinetics_table.webp) |
+| **Protein ladder**<br>[![PGML in the WeBWorK editor beside colored electrophoresis bands](docs/screenshots/gallery_ladder_editor.webp)](docs/screenshots/gallery_ladder_editor.webp)<br>[Full question](docs/screenshots/gallery_ladder.webp) | **Enzyme kinetics simulation**<br>[![Enzymes and substrates move in a simulated beaker as a concentration graph updates](docs/screenshots/gallery_enzyme_demo.gif)](docs/screenshots/gallery_enzyme_demo.gif) |
+| **Membrane transporter**<br>[![PGML in the WeBWorK editor beside a diagram of sodium and glucose transport](docs/screenshots/gallery_transporter_editor.webp)](docs/screenshots/gallery_transporter_editor.webp)<br>[Full question](docs/screenshots/gallery_transporter.webp) | **Amino acid matching**<br>[![Amino acid properties with matching controls](docs/screenshots/gallery_amino_matching_preview.webp)](docs/screenshots/gallery_amino_matching_preview.webp)<br>[Full question](docs/screenshots/gallery_amino_matching.webp) |
 
-## Test your own questions
+The enzyme animation shows starch breaking down to maltose and then glucose while the concentration
+graph updates. It captures [Neil R. Voss's WeBWorK adaptation](https://github.com/vosslab/biology-problems/blob/main/problems/biochemistry-problems/enzymes/enzyme_simulation.pgml)
+of [Jolene Pappas's Enzyme Simulation](https://www.biologysimulations.com/enzymes) for Biology Simulations LLC.
+The animation is shared under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+## Write your own questions
 
 - Put your `.pg` files in `private/`, including questions written in PGML. Load one, edit the
   source, and render again. Set a new **File path** before choosing **Save** to keep a separate copy.
 - If a randomized variant needs a fix, keep its seed while you edit. Try **New seed** after the
-  fix and submit answers on other variants.
-- Use **Show hints** to check the hints your question provides. Choose **Static** for a copy
-  suitable for handouts or **Debug** to inspect rendering diagnostics.
+  fix to preview other variants.
+- Use **Show hints** to proofread any hints you wrote, and **Debug** to inspect rendering
+  diagnostics.
 - In **Problem library**, open `private`, select a file, and choose **Open selected item** to
   preview it and review or edit its tags. An installed Open Problem Library appears under
   `Library` and `Contrib`.
@@ -75,7 +81,7 @@ from a question bank.
 
 ## Documentation
 
-- Author, debug, and test problem variants with [docs/USAGE.md](docs/USAGE.md).
+- Write and debug problem variants with [docs/USAGE.md](docs/USAGE.md).
 - Send problems from a script and choose the output format with
   [docs/RENDERER_API_USAGE.md](docs/RENDERER_API_USAGE.md).
 - Lint a single PG or PGML file from the command line with

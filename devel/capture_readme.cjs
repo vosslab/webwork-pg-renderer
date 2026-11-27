@@ -14,13 +14,16 @@ async function openSample(page) {
   await page.locator('#render-status').filter({ hasText: /loaded/i }).waitFor();
   await page.locator('#render-button').click();
   const preview = page.frameLocator('#rendered-problem');
-  await preview.locator('#problem_body').waitFor();
-  await preview.locator('input[type="radio"]').nth(1).check();
-  await preview.getByRole('button', { name: /submit answers/i }).click();
   await page.locator('#render-status').filter({ hasText: /rendered successfully/i }).waitFor();
-  await preview.locator('#problemMainForm').waitFor();
+  await preview.locator('#problem_body').getByText(/the structure of DNA/i).waitFor();
   await page.evaluate(() => document.fonts.ready);
   await preview.locator('body').evaluate(() => document.fonts.ready);
+  const source = page.locator('.cm-scroller');
+  await source.evaluate((scroller) => {
+    // Start just above the sample's $topic setting used in the README walkthrough.
+    const lineHeight = scroller.querySelector('.cm-line').getBoundingClientRect().height;
+    scroller.scrollTop = 80 * lineHeight;
+  });
 }
 
 async function openLibrarySample(page) {
@@ -46,7 +49,7 @@ async function main() {
   await mkdir(outputDir, { recursive: true });
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
   try {
-    const editor = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+    const editor = await browser.newPage({ viewport: { width: 1360, height: 790 }, deviceScaleFactor: 1 });
     await openSample(editor);
     await editor.screenshot({ path: resolve(outputDir, 'renderer_editor.png') });
     await editor.close();

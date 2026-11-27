@@ -28,21 +28,31 @@ editor and library. Inspect both final WebPs before updating the README.
 
 The [gallery capture script](../devel/capture_problem_gallery.cjs) renders six questions from
 [Biology Problems](https://github.com/vosslab/biology-problems) at seed `1234`. With the renderer
-running, reuse `capture_dir` from the setup above.
+running, reuse `capture_dir` from the setup above. The first capture writes the complete problem
+screenshots and tighter previews for the table and matching questions. The editor captures show
+the PGML source beside its rendered question. The animation uses FFmpeg.
 
 ```bash
 git clone https://github.com/vosslab/biology-problems.git "$capture_dir/biology-problems"
 NODE_PATH="$capture_dir/node_modules" node devel/capture_problem_gallery.cjs \
   "$capture_dir/biology-problems" http://localhost:3000 "$capture_dir"
 
+NODE_PATH="$capture_dir/node_modules" node devel/capture_problem_gallery.cjs \
+  "$capture_dir/biology-problems" http://localhost:3000 "$capture_dir" --editor-previews
+
 for png in "$capture_dir"/gallery_*.png; do
   webp="${png%.png}.webp"
   cwebp -q 90 "$png" -o "$webp"
   cp "$webp" docs/screenshots/
 done
+
+NODE_PATH="$capture_dir/node_modules" node devel/capture_problem_gallery.cjs \
+  "$capture_dir/biology-problems" http://localhost:3000 "$capture_dir" --enzyme-demo
+cp "$capture_dir/gallery_enzyme_demo.gif" docs/screenshots/
 ```
 
-Inspect the six final WebPs at full size before replacing the gallery.
+Inspect the code and rendered question in each editor capture. Play the GIF once to check the
+motion in the beaker and the changes in the concentration graph.
 
 ## Install
 

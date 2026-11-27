@@ -21,6 +21,11 @@
   Podman quick start. Document how to recapture both views and find the full API reference.
 - Add a six-problem screenshot gallery to show the renderer's diagrams, data, and answer inputs.
 - Arrange the gallery in two columns with screenshots paired by height.
+- Add an enzyme kinetics animation beside a shorter protein ladder preview. Crop the membrane
+  transporter preview to align with the matching question and link both crops to the full renders.
+- Frame the README around authoring WeBWorK problems and show the actual code editor beside the
+  Fischer projection, protein ladder, and membrane transporter previews. Tighten the table and
+  matching views to make their rendered details easier to read.
 
 ### Removals and Deprecations
 

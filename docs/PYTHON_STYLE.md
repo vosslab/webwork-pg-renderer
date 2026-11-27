@@ -1,5 +1,7 @@
 # PYTHON_STYLE.md
 
+> This file is vendored. Local changes can and will be overwritten by propagation.
+
 Language Model guide to Neil python3 programming
 
 ## Common misconceptions
@@ -15,12 +17,17 @@ AI agents frequently get these wrong. Read the full sections below for details.
 - **Import the module, not names from it.** Prefer `import os` over `from os import path`. See [IMPORTING](#importing).
 - **No relative imports.** Never use `from . import` or `from ..module import`. See [IMPORTING](#importing).
 - **Declare all third-party imports.** Every non-stdlib, non-local import must be in `pip_requirements.txt`. See [IMPORT REQUIREMENTS](#import-requirements).
-- **No brittle pytest assertions.** Do not assert on dates, collection sizes, required key lists, hardcoded defaults, or function names. See [PYTEST_STYLE.md](PYTEST_STYLE.md).
-- **No `assert` in plain scripts.** All `assert` statements live in `tests/test_*.py`, `tests/playwright/` (browser tests), or `tests/e2e/` (shell/Python E2E). Module-level asserts run on every import and slow script startup. See [ASSERT](#assert).
+- **Prefer fewer permanent tests.** Protect stable behavior worth preserving, not incidental
+  implementation. See [PYTEST_STYLE.md](PYTEST_STYLE.md).
+- **No `assert` in plain scripts.** All `assert` statements live in `tests/test_*.py`,
+  `tests/_temp/`, `tests/playwright/`, or `tests/e2e/`. Module-level asserts run on every import and
+  slow script startup. See [ASSERT](#assert).
 
 ## Python version
 
-* I like using one of the latest versions of python, but not the latest, of python3, currently **3.12**.
+* Prefer the latest Python release, following [REPO_STYLE.md](REPO_STYLE.md). Use the
+  repository-configured interpreter for commands until its environment is updated. Prefer the
+  system Python; use a venv only as a last resort.
 * In this repo, run python commands through the bootstrap pattern:
 * `source source_me.sh && python ...`
 
@@ -36,6 +43,13 @@ AI agents frequently get these wrong. Read the full sections below for details.
 * I disagree with PEP 8 requirement of spaces. Using spaces causes a lot more deleting and formatting work.
 * I use tabs exclusively.
 * Tabs provide flexibility, because I can change the tab size to 2, 3, 4, or 8 spaces depending on the complexity of the code.
+
+## LINE LENGTH
+
+- Prefer lines under 100 characters.
+- `tests/test_source_file_line_limit.py` rejects tracked Python lines over 120 characters and
+  reports the path, line number, and measured length. Wrap expressions at logical boundaries
+  and lay out multiline fixtures across source lines.
 
 ## CODE STRUCTURE
 
@@ -173,8 +187,10 @@ volume_text = f"<span style='font-family: monospace;'>{vol1:.1f} mL</span>"
 - a good repo-wide pyflakes gate is `tests/test_pyflakes_code_lint.py` (run with pytest)
 - For pytest-specific style, test design, and command usage, see [PYTEST_STYLE.md](PYTEST_STYLE.md).
 - For slow end-to-end tests run outside pytest, see [E2E_TESTS.md](E2E_TESTS.md).
+- Put temporary tests and one-time checks in `tests/_temp/`; promote or remove them before plan
+  completion.
 ```bash
-pytest tests/test_pyflakes_code_lint.py
+source source_me.sh && pytest tests/test_pyflakes_code_lint.py
 ```
 
 ## DO NOT USE HEREDOCS
@@ -225,13 +241,13 @@ export PYTHONDONTWRITEBYTECODE=1
 ```
 
 * Use Google style documentation style for functions. https://github.com/google/styleguide
-* I prefer to keep line lengths less than 100 characters
 * Comments should be on a line of their own before the code they are commenting
 * No emoji or special characters in comments, only ascii characters
 
 ## ASSERT
 
-* Do not put `assert` statements in plain `.py` scripts or library modules. All asserts live in `tests/test_*.py`, `tests/playwright/` (browser tests), or `tests/e2e/` (shell/Python E2E).
+* Do not put `assert` statements in plain `.py` scripts or library modules. All asserts live in
+  `tests/test_*.py`, `tests/_temp/`, `tests/playwright/`, or `tests/e2e/`.
 * Reason: module-level asserts run at import time, which slows CLI startup. Tests pay the cost once, in the test suite.
 * Do not assert in functions that require user input or read/write to files; cover those with end-to-end checks instead. See [E2E_TESTS.md](E2E_TESTS.md).
 * Keep individual asserts short: under 4 lines and under 100 characters.
@@ -302,6 +318,7 @@ If you add a new third-party import, add the package to the appropriate requirem
 ### ARGPARSE MINIMALISM
 
 Be conservative. Only add arguments users frequently need to change between runs.
+Apply the **Keep configuration simple** principle in [REPO_STYLE.md](REPO_STYLE.md).
 
 **Good candidates:**
 - Input/output file paths
@@ -370,7 +387,8 @@ def parse_args():
 * YAML favorite, readable, editable
 * CSV spreadsheet input/output
 * JSON good for large, wordy data
-* PNG images, graphics, figures, pixel data
+* WebP at quality 90 for final named screenshots; see [REPO_STYLE.md](REPO_STYLE.md#screenshot-format).
+* Choose other image and scientific pixel-data formats for the artifact's requirements.
 
 ## AVAILABLE MODULES
 

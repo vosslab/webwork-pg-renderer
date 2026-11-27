@@ -1,3 +1,20 @@
+# === UNIVERSAL === [PROPAGATED - LOCAL EDITS OVERWRITTEN]
+.DS_Store
+/node_modules/
+/.env
+/report_*.txt
+/output*/
+/generated/
+/graphify-out/
+_temp*.?*
+/temp/
+/tests/_temp/
+/OTHER_REPOS/
+/LOCAL_ONLY/
+
+# -------------------- LOCAL REPOSITORY RULES --------------------
+# ADD YOUR CUSTOM IGNORES BELOW
+# Propagation preserves this section.
 OTHER_REPOS-do_not_commit/
 *.DS_Store
 # lib/PG is cloned in Dockerfile; not tracked as a submodule
@@ -31,12 +48,4 @@ public/static-assets.json
 *.tmp
 
 .github/workflows/
-.DS_Store
 report_*.txt
-
-# === UNIVERSAL ===
-output*/
-_temp*.?*
-/OTHER_REPOS/
-/LOCAL_ONLY/
-
